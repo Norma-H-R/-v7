@@ -114,8 +114,7 @@ double Track4Lower[];
 
 double FastLine[];
 double KAMALine[];
-double KAMAUpper[];
-double KAMALower[];
+double KAMAHalfWidth[];
 double Atr[];
 double Track4DriveUpper[];
 double Track4DriveLower[];
@@ -215,8 +214,7 @@ void CalculateTrack4At(
       !dataReady ||
       i + 3 >= total ||
       KAMALine[i] == EMPTY_VALUE ||
-      KAMAUpper[i] == EMPTY_VALUE ||
-      KAMALower[i] == EMPTY_VALUE ||
+      KAMAHalfWidth[i] == EMPTY_VALUE ||
       FastLine[i] == EMPTY_VALUE ||
       Track4MACDMain[i] == EMPTY_VALUE ||
       Track4MACDSignal[i] == EMPTY_VALUE ||
@@ -244,8 +242,8 @@ void CalculateTrack4At(
 
    // 基础通道：快速线为中心，借用KAMA上下半宽。
    double widthScale = MathMax(0.01, InpFast_KAMAWidth_Scale);
-   double kamaHalfUp = MathMax(0.0, KAMAUpper[i] - KAMALine[i]);
-   double kamaHalfDown = MathMax(0.0, KAMALine[i] - KAMALower[i]);
+   double kamaHalfUp = MathMax(0.0, KAMAHalfWidth[i]);
+   double kamaHalfDown = MathMax(0.0, KAMAHalfWidth[i]);
 
    double baseUpper = FastLine[i] + kamaHalfUp * widthScale;
    double baseLower = FastLine[i] - kamaHalfDown * widthScale;
@@ -531,8 +529,7 @@ int OnCalculate(
    ArrayResize(Track4Lower,rates_total);
    ArrayResize(FastLine,rates_total);
    ArrayResize(KAMALine,rates_total);
-   ArrayResize(KAMAUpper,rates_total);
-   ArrayResize(KAMALower,rates_total);
+   ArrayResize(KAMAHalfWidth,rates_total);
    ArrayResize(Atr,rates_total);
    ArrayResize(Track4DriveUpper,rates_total);
    ArrayResize(Track4DriveLower,rates_total);
@@ -556,8 +553,7 @@ int OnCalculate(
    ArraySetAsSeries(Track4Lower,true);
    ArraySetAsSeries(FastLine,true);
    ArraySetAsSeries(KAMALine,true);
-   ArraySetAsSeries(KAMAUpper,true);
-   ArraySetAsSeries(KAMALower,true);
+   ArraySetAsSeries(KAMAHalfWidth,true);
    ArraySetAsSeries(Atr,true);
    ArraySetAsSeries(Track4DriveUpper,true);
    ArraySetAsSeries(Track4DriveLower,true);
@@ -683,22 +679,15 @@ int OnCalculate(
             residual*InpResidual_Multiplier)
          *InpKAMA_Width_Mult;
 
-      KAMAUpper[i]=KAMALine[i]+wKAMA;
-      KAMALower[i]=KAMALine[i]-wKAMA;
-
-      double kamaHalfUp =
-         MathMax(0.0,KAMAUpper[i]-KAMALine[i]);
-
-      double kamaHalfDown =
-         MathMax(0.0,KAMALine[i]-KAMALower[i]);
+      KAMAHalfWidth[i] = wKAMA;
 
       double scale=MathMax(0.01,InpFast_KAMAWidth_Scale);
 
       KAMAWidthUpper[i] =
-         FastLine[i]+kamaHalfUp*scale+InpKAMA_UpperOffset;
+         FastLine[i]+wKAMA*scale+InpKAMA_UpperOffset;
 
       KAMAWidthLower[i] =
-         FastLine[i]-kamaHalfDown*scale+InpKAMA_LowerOffset;
+         FastLine[i]-wKAMA*scale+InpKAMA_LowerOffset;
    }
 
    // 第三阶段：融合轨4
