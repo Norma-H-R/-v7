@@ -646,6 +646,7 @@ int gCachedRatesTotal=0;
 bool gTouchSpacingFilter=true; // 默认开启：任意3根K线范围内最多接受一个触点
 bool gStatsEnabled=true; // 关闭后不运行历史盈亏统计计算
 bool gStatsDirty=true; // 轨道偏移或新K线出现后需要刷新统计
+bool gArrowDirty=true; // 融合轨4偏移后重建触轨箭头
 bool gLiteRailVisible[4]={true,true,true,true}; // 四条目标轨道仅控制绘制，不影响计算
 string gButtonText[UI_BUTTON_COUNT] =
   {"快速通道","卡尔曼通道","KAMA通道","中位通道","融合通道",
@@ -1600,15 +1601,16 @@ void UpdateTouchArrowsAndStats(const int rates_total,const datetime &time[],cons
    datetime activeEntryTimes[];
    int activeCount=0;
    int activeDirection=0; // +1多头，-1空头
+   double activeEntryPriceSum=0.0; // 用入场价总和计算篮子浮盈，避免每根K线遍历所有持仓
 
    for(int i=rates_total-1;i>=1;i--)
      {
       // 每根K线按收盘价估算仍未平仓篮子的浮动盈亏，记录最深浮亏；该值是历史K线近似值。
       if(activeCount>0)
         {
-         double floatingPoints=0.0;
-         for(int fp=0;fp<activeCount;fp++)
-            floatingPoints+=(activeDirection==1 ? (close[i]-activeEntryPrices[fp]) : (activeEntryPrices[fp]-close[i]))*10.0;
+         double floatingPoints=(activeDirection==1
+                                ? (activeCount*close[i]-activeEntryPriceSum)
+                                : (activeEntryPriceSum-activeCount*close[i]))*10.0;
          if(floatingPoints<0.0 && -floatingPoints>maxFloatingLoss)
           { maxFloatingLoss=-floatingPoints; maxFloatingLossDate=StatsDateTimeKey(time[i]); }
         }
@@ -1628,6 +1630,7 @@ void UpdateTouchArrowsAndStats(const int rates_total,const datetime &time[],cons
          ArrayResize(activeEntryTimes,1);
          activeEntryPrices[0]=GetTouchExecutionPrice(direction,i,open,Composite4Upper,Composite4Lower);
          activeEntryTimes[0]=time[i];
+         activeEntryPriceSum=activeEntryPrices[0];
          activeCount=1;
          if(activeCount>maxSimultaneousPositions)
            { maxSimultaneousPositions=activeCount; maxPositionsDates=StatsDateTimeKey(time[i]); }
@@ -1642,6 +1645,7 @@ void UpdateTouchArrowsAndStats(const int rates_total,const datetime &time[],cons
          ArrayResize(activeEntryTimes,activeCount+1);
          activeEntryPrices[activeCount]=GetTouchExecutionPrice(direction,i,open,Composite4Upper,Composite4Lower);
          activeEntryTimes[activeCount]=time[i];
+         activeEntryPriceSum+=activeEntryPrices[activeCount];
          activeCount++;
          if(activeCount>maxSimultaneousPositions)
            { maxSimultaneousPositions=activeCount; maxPositionsDates=StatsDateTimeKey(time[i]); }
@@ -1699,6 +1703,7 @@ void UpdateTouchArrowsAndStats(const int rates_total,const datetime &time[],cons
       ArrayResize(activeEntryTimes,1);
       activeEntryPrices[0]=GetTouchExecutionPrice(direction,i,open,Composite4Upper,Composite4Lower);
       activeEntryTimes[0]=time[i];
+      activeEntryPriceSum=activeEntryPrices[0];
      }
 
    SetStatsLine(0,"NMNX 双轨触轨统计 | 最近10个交易日 | 价格波动1.00美元=10点",clrAqua);
@@ -2240,6 +2245,7 @@ void OnChartEvent(const int id,const long &lparam,const double &dparam,const str
           UpdateTrack4DeviationButtons();
           RebuildTrack4();
           gStatsDirty=true;
+          gArrowDirty=true;
           ObjectSetInteger(0,sparam,OBJPROP_STATE,false);
           ChartRedraw(0);
           return;
@@ -2266,6 +2272,7 @@ void OnChartEvent(const int id,const long &lparam,const double &dparam,const str
             if(channel==0 || channel==2 || channel==4) RebuildOffsetChannel(3);
             if(channel==4) RebuildOffsetChannel(2);
             gStatsDirty=true;
+            gArrowDirty=true;
             UpdateDebugPanel();
            }
          ObjectSetInteger(0,sparam,OBJPROP_STATE,false);
@@ -2458,6 +2465,11 @@ int OnCalculate(const int rates_total,
 
    // 普通报价只读取当前计算段所需的动能数据；关闭统计时绝不复制全历史指标数据。
    int copyCount=(full ? rates_total : MathMin(rates_total,start+2));
+   if(BarsCalculated(gTrack4MACDHandle)<copyCount || BarsCalculated(gTrack4RSI7Handle)<copyCount ||
+      BarsCalculated(gTrack4RSI17Handle)<copyCount || BarsCalculated(gTrack4WPR7Handle)<copyCount ||
+      BarsCalculated(gTrack4WPR14Handle)<copyCount || BarsCalculated(gTrack4KDJHandle)<copyCount ||
+      BarsCalculated(gTrack4ADXHandle)<copyCount)
+      return prev_calculated;
    double macdMain[],macdSignal[],rsi7[],rsi17[],wpr7[],wpr14[],kdjK[],kdjD[],adx[],plusDI[],minusDI[];
    ArrayResize(macdMain,copyCount); ArrayResize(macdSignal,copyCount);
    ArrayResize(rsi7,copyCount); ArrayResize(rsi17,copyCount);
@@ -2481,7 +2493,7 @@ int OnCalculate(const int rates_total,
    if(CopyBuffer(gTrack4ADXHandle,0,0,copyCount,adx)<copyCount) dataReady=false;
    if(CopyBuffer(gTrack4ADXHandle,1,0,copyCount,plusDI)<copyCount) dataReady=false;
    if(CopyBuffer(gTrack4ADXHandle,2,0,copyCount,minusDI)<copyCount) dataReady=false;
-   if(!dataReady) { gForceFullRecalc=true; return prev_calculated; }
+   if(!dataReady) return prev_calculated;
 
    ArrayResize(Track4MACDMain,rates_total); ArraySetAsSeries(Track4MACDMain,true);
    ArrayResize(Track4MACDSignal,rates_total); ArraySetAsSeries(Track4MACDSignal,true);
@@ -2546,8 +2558,11 @@ int OnCalculate(const int rates_total,
       UpdateTouchArrowsAndStats(rates_total,time,open,high,low,close);
       gStatsDirty=false;
      }
-   else if(!gStatsEnabled && (full || rates_total>prev_calculated))
+   else if(!gStatsEnabled && (gArrowDirty || full || rates_total>prev_calculated))
+     {
       UpdateTouchArrowsOnly(rates_total,time,open,high,low,close);
+      gArrowDirty=false;
+     }
    return rates_total;
   }
 //+------------------------------------------------------------------+
