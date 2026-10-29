@@ -938,14 +938,14 @@ void UpdateDebugPanel()
    t+="D 六组外沿：同一组可用通道中，上轨取最大值、下轨取最小值，形成外包络；D上下轨偏移仅改变D显示结果，不作为E限宽融合的输入。\r\n";
    t+="E 限宽融合：当前源码中C均值与D计算源使用同一批组成员；按混合比例 blend="+DoubleToString(InpCappedBlend,2)+"在C六组平均与六组外沿之间插值，再以快速线为中心限制半宽不超过ATR×"+DoubleToString(InpMaxHalfWidth_ATR,2)+"，最后加E上下轨偏移。blend=0偏向C平均，blend=1偏向外沿。\r\n";
    t+="F 五线中位：对当前启用引用的基础通道，上轨单独排序取中位数，下轨单独排序取中位数；不包含KAMA宽度通道。\r\n";
-   t+="综合轨1：原始上/下轨=2×C上/下轨-E上/下轨；再分别加/减 |E轨-C轨|×动态倍率，最后叠加综合轨1人工偏移。动态倍率来源于B外沿比较轨道的窗口相对变化率，参数窗口="+IntegerToString(CompositeSpeedWindowValue())+"，平滑窗口="+IntegerToString(CompositeSmoothingValue())+"，长期基准="+IntegerToString(InpCompositeBaselineWindow)+"；动态倍率当前="+OnOffText(gDynamicMultiplierEnabled)+"。\r\n\r\n";
+   t+="轻量版计算链：KAMA宽度参考轨使用快速响应线、KAMA中线、ATR与残差均方根宽度；融合轨4在此基础上结合动能指标计算驱离量。旧综合轨动态倍率计算已删除。\\r\\n\\r\\n";
 
    t+="四、实时参与状态总表（每次开关切换后自动刷新）\r\n";
    t+="基础线："+DebugLineState(0)+"；"+DebugLineState(1)+"；"+DebugLineState(2)+"。\r\n";
    t+="基础线："+DebugLineState(3)+"；"+DebugLineState(4)+"。\r\n";
    t+="通道绘制：快速="+OnOffText(gShow[0])+"，卡尔曼="+OnOffText(gShow[1])+"，KAMA="+OnOffText(gShow[2])+"，中位="+OnOffText(gShow[3])+"，融合="+OnOffText(gShow[4])+"，KAMA宽度="+OnOffText(gShow[5])+"。\r\n";
    t+="组合绘制：A均值="+OnOffText(gShow[6])+"，B外沿="+OnOffText(gShow[7])+"，C六组平均="+OnOffText(gShow[8])+"，D六组外沿="+OnOffText(gShow[9])+"，E限宽="+OnOffText(gShow[10])+"，F五线中位="+OnOffText(gShow[11])+"，综合轨1="+OnOffText(gShow[12])+"，融合轨2="+OnOffText(gShow[13])+"，融合轨3="+OnOffText(gShow[14])+"，融合轨4="+OnOffText(gShow[15])+"。\r\n";
-   t+="融合轨3：基础上轨=KAMA上轨-融合轨2上半宽；基础下轨=KAMA下轨+融合轨2下半宽；均线轨=(上轨+下轨)/2。上下轨按钮只负责独立平移，每次调整0.1；上轨偏移="+DoubleToString(gTrack3UpperOffset,1)+"，下轨偏移="+DoubleToString(gTrack3LowerOffset,1)+"。\r\n";
+   t+="当前轻量版保留KAMA宽度参考上下轨、融合轨4上下轨、触轨箭头及统计面板；融合轨2、融合轨3和旧组合轨计算已停用。\\r\\n";
    t+="偏移说明：B、KAMA宽度、E、综合轨1、D各有独立上/下轨偏移；偏移只影响相应通道显示值，具体数值可查看左上角偏移按钮。\r\n";
    t+="调试建议：先单独切换某条基础线的‘参与计算’，观察融合线、A/B/C/D/E/F与综合轨1；再分别切换通道‘显示’以区分计算变化和绘图变化。\r\n";
 
@@ -1256,7 +1256,7 @@ string LiteRailButtonName(const int index)
 
 void UpdateLiteRailButtons()
   {
-   string labels[4]={"KAMA参考上轨","KAMA参考下轨","融合轨4上轨","融合轨4下轨"};
+
    for(int i=0;i<4;i++)
      {
       string name=LiteRailButtonName(i);
@@ -1271,7 +1271,7 @@ void UpdateLiteRailButtons()
 
 void CreateLiteRailButtons()
   {
-   string labels[4]={"KAMA参考上轨","KAMA参考下轨","融合轨4上轨","融合轨4下轨"};
+
    int xs[4]={250,385,520,655};
    int ys[4]={675,675,700,700};
    for(int i=0;i<4;i++)
@@ -1597,7 +1597,7 @@ int OnInit()
       InpKalman_R_Factor<=0.0 || InpKAMA_ER_Period<1 ||
       InpKAMA_Fast_Period<1 || InpKAMA_Slow_Period<2 ||
       InpMedian_Period<1 || InpFusion_Smooth_Period<1 ||
-      InpATR_Period<1 || InpResidual_Period<1 ||
+      InpATR_Period<1 || InpResidual_Period<1)
    {
       Print("五线原始通道：参数无效，请检查输入参数。");
       return INIT_PARAMETERS_INCORRECT;
