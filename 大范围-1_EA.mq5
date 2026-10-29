@@ -29,6 +29,10 @@ input group "02 · 回测图表显示（只控制绘图，不关闭计算）"
 input bool InpShowKAMAReferenceRails=false;
 input bool InpShowFusionTrack4Rails=false;
 input int InpDisplayBars=250;
+input double InpKAMAReferenceUpperOffset=0.0;
+input double InpKAMAReferenceLowerOffset=0.0;
+input double InpFusion4UpperOffset=0.0;
+input double InpFusion4LowerOffset=0.0;
 
 input group "03 · 基础轨道参数（与原指标默认值一致）"
 input int InpFastEMA_Period=3;
@@ -176,8 +180,8 @@ bool CalculateAll()
       double half=MathMax(MathMax(atr[i]*InpATR_Min_Multiplier,rms*InpResidual_Multiplier)*InpKAMA_Width_Mult,_Point*2.0);
       kamaUpper[i]=kama[i]+half;
       kamaLower[i]=kama[i]-half;
-      refUpper[i]=fastLine[i]+half*MathMax(0.01,InpFast_KAMAWidth_Scale);
-      refLower[i]=fastLine[i]-half*MathMax(0.01,InpFast_KAMAWidth_Scale);
+      refUpper[i]=fastLine[i]+half*MathMax(0.01,InpFast_KAMAWidth_Scale)+InpKAMAReferenceUpperOffset;
+      refLower[i]=fastLine[i]-half*MathMax(0.01,InpFast_KAMAWidth_Scale)+InpKAMAReferenceLowerOffset;
      }
 
    // MACD 主线及信号线，使用 EA 内部缓存数组递推。
@@ -327,8 +331,8 @@ bool CalculateAll()
          driveUpper[i]=prevU+upperRate*(targetU-prevU);
          driveLower[i]=prevL+lowerRate*(targetL-prevL);
         }
-      fusionUpper[i]=baseUpper+driveUpper[i];
-      fusionLower[i]=baseLower+driveLower[i];
+      fusionUpper[i]=baseUpper+driveUpper[i]+InpFusion4UpperOffset;
+      fusionLower[i]=baseLower+driveLower[i]+InpFusion4LowerOffset;
      }
    return true;
   }
@@ -371,8 +375,8 @@ bool CalculateCurrentBar()
    double half=MathMax(MathMax(atr[0]*InpATR_Min_Multiplier,rms*InpResidual_Multiplier)*InpKAMA_Width_Mult,_Point*2.0);
    kamaUpper[0]=kama[0]+half;
    kamaLower[0]=kama[0]-half;
-   refUpper[0]=fastLine[0]+half*MathMax(0.01,InpFast_KAMAWidth_Scale);
-   refLower[0]=fastLine[0]-half*MathMax(0.01,InpFast_KAMAWidth_Scale);
+   refUpper[0]=fastLine[0]+half*MathMax(0.01,InpFast_KAMAWidth_Scale)+InpKAMAReferenceUpperOffset;
+   refLower[0]=fastLine[0]-half*MathMax(0.01,InpFast_KAMAWidth_Scale)+InpKAMAReferenceLowerOffset;
 
    double aMF=2.0/(MathMax(1,InpTrack4_MACD_Fast)+1.0);
    double aMS=2.0/(MathMax(1,InpTrack4_MACD_Slow)+1.0);
@@ -466,8 +470,8 @@ bool CalculateCurrentBar()
    double lowerRate=(lowerExp?expand:ClampV(recoil+0.20*fade,recoil,0.95));
    driveUpper[0]=prevU+upperRate*(targetU-prevU);
    driveLower[0]=prevL+lowerRate*(targetL-prevL);
-   fusionUpper[0]=baseUpper+driveUpper[0];
-   fusionLower[0]=baseLower+driveLower[0];
+   fusionUpper[0]=baseUpper+driveUpper[0]+InpFusion4UpperOffset;
+   fusionLower[0]=baseLower+driveLower[0]+InpFusion4LowerOffset;
    return true;
   }
 
