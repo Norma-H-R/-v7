@@ -1518,6 +1518,32 @@ double GetTouchExecutionPrice(const int direction,const int i,const double &open
    return EMPTY_VALUE;
   }
 
+void UpdateTouchArrowsLatestBar(const int rates_total,const double &high[],const double &low[])
+  {
+   if(rates_total<3) return;
+   SellTouchArrow[0]=EMPTY_VALUE;
+   BuyTouchArrow[0]=EMPTY_VALUE;
+   int i=1;
+   if(Composite4Upper[i]==EMPTY_VALUE || Composite4Lower[i]==EMPTY_VALUE ||
+      !MathIsValidNumber(Composite4Upper[i]) || !MathIsValidNumber(Composite4Lower[i])) return;
+   bool upper=(high[i]>=Composite4Upper[i]);
+   bool lower=(low[i]<=Composite4Lower[i]);
+   if(!upper && !lower) return;
+   int direction=(lower&&!upper?1:(upper&&!lower?-1:0));
+   if(gTouchSpacingFilter && direction!=0)
+     {
+      for(int j=2;j<=3 && j<rates_total;j++)
+        {
+         int prior=(BuyTouchArrow[j]!=EMPTY_VALUE && SellTouchArrow[j]==EMPTY_VALUE ? 1 :
+                    (SellTouchArrow[j]!=EMPTY_VALUE && BuyTouchArrow[j]==EMPTY_VALUE ? -1 : 0));
+         if(prior==direction && (j-i)<3) return;
+         if(prior!=0 && prior!=direction) break;
+        }
+     }
+   if(upper) SellTouchArrow[i]=Composite4Upper[i];
+   if(lower) BuyTouchArrow[i]=Composite4Lower[i];
+  }
+
 void UpdateTouchArrowsAndStats(const int rates_total,const datetime &time[],const double &open[],const double &high[],const double &low[],const double &close[])
   {
    if(rates_total<3) return;
@@ -1599,6 +1625,8 @@ void UpdateTouchArrowsAndStats(const int rates_total,const datetime &time[],cons
    // 每笔仓位仍分别按自己的入场价计算盈亏，不能把A/B/C合并成一个入场价。
    double activeEntryPrices[];
    datetime activeEntryTimes[];
+   ArrayResize(activeEntryPrices,rates_total);
+   ArrayResize(activeEntryTimes,rates_total);
    int activeCount=0;
    int activeDirection=0; // +1多头，-1空头
    double activeEntryPriceSum=0.0; // 用入场价总和计算篮子浮盈，避免每根K线遍历所有持仓
@@ -1699,8 +1727,6 @@ void UpdateTouchArrowsAndStats(const int rates_total,const datetime &time[],cons
       // 全部旧方向仓位已经在同一位置平仓；当前反向触点同时成为新方向的第一笔入场。
       activeDirection=direction;
       activeCount=1;
-      ArrayResize(activeEntryPrices,1);
-      ArrayResize(activeEntryTimes,1);
       activeEntryPrices[0]=GetTouchExecutionPrice(direction,i,open,Composite4Upper,Composite4Lower);
       activeEntryTimes[0]=time[i];
       activeEntryPriceSum=activeEntryPrices[0];
@@ -2558,11 +2584,13 @@ int OnCalculate(const int rates_total,
       UpdateTouchArrowsAndStats(rates_total,time,open,high,low,close);
       gStatsDirty=false;
      }
-   else if(!gStatsEnabled && (gArrowDirty || full || rates_total>prev_calculated))
+   else if(!gStatsEnabled && (gArrowDirty || full))
      {
       UpdateTouchArrowsOnly(rates_total,time,open,high,low,close);
       gArrowDirty=false;
      }
+   else if(!gStatsEnabled && rates_total>prev_calculated)
+      UpdateTouchArrowsLatestBar(rates_total,high,low);
    return rates_total;
   }
 //+------------------------------------------------------------------+
