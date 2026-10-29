@@ -70,6 +70,7 @@ input double InpTrack4_ExpandSpeed    = 0.22;
 input double InpTrack4_RecoilSpeed    = 0.68;
 
 input group "03 · 统计与测试"
+input double InpStatsCostPointsPerPosition = 0.0; // 每笔模拟仓位估算成本点数，0表示不扣成本
 
 #define UI_PREFIX "NMNX_CF30_"
 #define TRACK4_OFFSET_STEP 0.1
