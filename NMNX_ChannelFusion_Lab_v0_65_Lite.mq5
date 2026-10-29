@@ -57,7 +57,7 @@
 //| 目的：保留五线原始通道，并新增快速线中心/KAMA宽度通道用于对照。   |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "0.660"
+#property version   "000.660"
 #property description "NMNX双轨测试版：仅显示KAMA宽度与融合轨4，触轨箭头及近10个交易日多空统计。"
 #property indicator_chart_window
 #property indicator_buffers 41
