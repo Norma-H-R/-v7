@@ -1918,11 +1918,6 @@ int OnInit()
    CreateTrack4DeviationButtons();
    CreateLiteRailButtons();
 
-   gTrack2MACDHandle=iMACD(_Symbol,_Period,InpTrack2_MACD_Fast,InpTrack2_MACD_Slow,InpTrack2_MACD_Signal,PRICE_CLOSE);
-   gTrack2RSI7Handle=iRSI(_Symbol,_Period,InpTrack2_RSI_Fast,PRICE_CLOSE);
-   gTrack2RSI14Handle=iRSI(_Symbol,_Period,InpTrack2_RSI_Slow,PRICE_CLOSE);
-   gTrack2WPRHandle=iWPR(_Symbol,_Period,InpTrack2_WPR_Period);
-   gTrack2ADXHandle=iADX(_Symbol,_Period,InpTrack2_ADX_Period);
    gTrack4MACDHandle=iMACD(_Symbol,_Period,InpTrack4_MACD_Fast,InpTrack4_MACD_Slow,InpTrack4_MACD_Signal,PRICE_CLOSE);
    gTrack4RSI7Handle=iRSI(_Symbol,_Period,InpTrack4_RSI_Fast,PRICE_CLOSE);
    gTrack4RSI17Handle=iRSI(_Symbol,_Period,InpTrack4_RSI_Slow,PRICE_CLOSE);
@@ -1930,9 +1925,9 @@ int OnInit()
    gTrack4WPR14Handle=iWPR(_Symbol,_Period,InpTrack4_WPR_Slow);
    gTrack4ADXHandle=iADX(_Symbol,_Period,InpTrack4_ADX_Period);
    gTrack4KDJHandle=iStochastic(_Symbol,_Period,InpTrack4_KDJ_K,InpTrack4_KDJ_D,InpTrack4_KDJ_Slowing,MODE_SMA,STO_LOWHIGH);
-   if(gTrack2MACDHandle==INVALID_HANDLE || gTrack2RSI7Handle==INVALID_HANDLE || gTrack2RSI14Handle==INVALID_HANDLE || gTrack2WPRHandle==INVALID_HANDLE || gTrack2ADXHandle==INVALID_HANDLE || gTrack4MACDHandle==INVALID_HANDLE || gTrack4RSI7Handle==INVALID_HANDLE || gTrack4RSI17Handle==INVALID_HANDLE || gTrack4WPR7Handle==INVALID_HANDLE || gTrack4WPR14Handle==INVALID_HANDLE || gTrack4ADXHandle==INVALID_HANDLE || gTrack4KDJHandle==INVALID_HANDLE)
+   if(gTrack4MACDHandle==INVALID_HANDLE || gTrack4RSI7Handle==INVALID_HANDLE || gTrack4RSI17Handle==INVALID_HANDLE || gTrack4WPR7Handle==INVALID_HANDLE || gTrack4WPR14Handle==INVALID_HANDLE || gTrack4ADXHandle==INVALID_HANDLE || gTrack4KDJHandle==INVALID_HANDLE)
      {
-      Print("融合轨2：无法创建一个或多个指标句柄，检查参数与终端数据。");
+      Print("融合轨4轻量版：无法创建一个或多个动能指标句柄，检查参数与终端数据。");
       return INIT_FAILED;
      }
 
