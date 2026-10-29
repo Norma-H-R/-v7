@@ -57,7 +57,7 @@
 //| 目的：保留五线原始通道，并新增快速线中心/KAMA宽度通道用于对照。   |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "000.660"
+#property version   "1.660"
 #property description "NMNX双轨测试版：仅显示KAMA宽度与融合轨4，触轨箭头及近10个交易日多空统计。"
 #property indicator_chart_window
 #property indicator_buffers 41
@@ -1256,7 +1256,7 @@ string LiteRailButtonName(const int index)
 
 void UpdateLiteRailButtons()
   {
-
+   string labels[4]={"KAMA参考上轨","KAMA参考下轨","融合轨4上轨","融合轨4下轨"};
    for(int i=0;i<4;i++)
      {
       string name=LiteRailButtonName(i);
@@ -1271,8 +1271,6 @@ void UpdateLiteRailButtons()
 
 void CreateLiteRailButtons()
   {
-   string labels[4]={"KAMA参考上轨","KAMA参考下轨","融合轨4上轨","融合轨4下轨"};
-
    int xs[4]={250,385,520,655};
    int ys[4]={675,675,700,700};
    for(int i=0;i<4;i++)
