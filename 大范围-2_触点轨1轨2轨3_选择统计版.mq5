@@ -201,6 +201,8 @@ string gObjectPrefix = "NMNX_TwoTrack_Core_";
 // 0=融合轨4，1=触点轨1，2=触点轨2，3=触点轨3
 int gSelectedTrack = 0;
 string gStatsLabelName = "NMNX_TwoTrack_Core_Stats";
+string gStatsRecentName = "NMNX_TwoTrack_Core_StatsRecent";
+string gStatsNoteName = "NMNX_TwoTrack_Core_StatsNote";
 
 //--- 实时报价触轨状态：只记录报价主动穿越轨道的信号
 datetime gLastArrowBarTime = 0;
@@ -986,13 +988,22 @@ void CreateSelectorUI()
 
    if(ObjectFind(0,gStatsLabelName) < 0)
       ObjectCreate(0,gStatsLabelName,OBJ_LABEL,0,0,0);
-   ObjectSetInteger(0,gStatsLabelName,OBJPROP_CORNER,CORNER_LEFT_UPPER);
-   ObjectSetInteger(0,gStatsLabelName,OBJPROP_XDISTANCE,10);
-   ObjectSetInteger(0,gStatsLabelName,OBJPROP_YDISTANCE,47);
-   ObjectSetInteger(0,gStatsLabelName,OBJPROP_FONTSIZE,10);
-   ObjectSetInteger(0,gStatsLabelName,OBJPROP_COLOR,clrWhite);
-   ObjectSetInteger(0,gStatsLabelName,OBJPROP_HIDDEN,true);
-   ObjectSetInteger(0,gStatsLabelName,OBJPROP_SELECTABLE,false);
+   if(ObjectFind(0,gStatsRecentName) < 0)
+      ObjectCreate(0,gStatsRecentName,OBJ_LABEL,0,0,0);
+   if(ObjectFind(0,gStatsNoteName) < 0)
+      ObjectCreate(0,gStatsNoteName,OBJ_LABEL,0,0,0);
+
+   string labels[3] = {gStatsLabelName,gStatsRecentName,gStatsNoteName};
+   for(int j=0; j<3; j++)
+   {
+      ObjectSetInteger(0,labels[j],OBJPROP_CORNER,CORNER_LEFT_UPPER);
+      ObjectSetInteger(0,labels[j],OBJPROP_XDISTANCE,10);
+      ObjectSetInteger(0,labels[j],OBJPROP_YDISTANCE,47+j*18);
+      ObjectSetInteger(0,labels[j],OBJPROP_FONTSIZE,10);
+      ObjectSetInteger(0,labels[j],OBJPROP_COLOR,clrWhite);
+      ObjectSetInteger(0,labels[j],OBJPROP_HIDDEN,true);
+      ObjectSetInteger(0,labels[j],OBJPROP_SELECTABLE,false);
+   }
    UpdateSelectorUI();
 }
 
@@ -1028,6 +1039,11 @@ void OnChartEvent(const int id,
          gHasPreviousQuote = false;
          gSellTriggeredThisBar = false;
          gBuyTriggeredThisBar = false;
+
+         // 切换测试轨道时清空旧轨道箭头，避免不同轨道信号混在一起。
+         ArrayInitialize(SellTouchArrow,EMPTY_VALUE);
+         ArrayInitialize(BuyTouchArrow,EMPTY_VALUE);
+
          UpdateSelectorUI();
          // 让下一次报价重新建立基准，避免切换轨道时沿用旧轨道报价状态。
          ChartRedraw(0);
@@ -1132,10 +1148,16 @@ void UpdateStatsDisplay(const int total,
    double winRate = completed>0 ? 100.0*wins/completed : 0.0;
    double recentRate = recentCompleted>0 ? 100.0*recentWins/recentCompleted : 0.0;
    string textOut = StringFormat(
-      "当前比较：%s | 总计：完成%d笔 胜%d/负%d 胜率%.1f%% 净点数%.1f | 近10天：完成%d笔 胜率%.1f%% 净点数%.1f | 未平仓%d笔",
-      SelectedTrackName(),completed,wins,losses,winRate,netPoints,
+      "当前比较：%s | 总计完成%d笔 胜%d/负%d 胜率%.1f%% 净点数%.1f",
+      SelectedTrackName(),completed,wins,losses,winRate,netPoints);
+   string recentOut = StringFormat(
+      "近10天：完成%d笔 胜率%.1f%% 净点数%.1f | 当前未平仓模拟单%d笔",
       recentCompleted,recentRate,recentNet,openCount);
+
    ObjectSetString(0,gStatsLabelName,OBJPROP_TEXT,textOut);
+   ObjectSetString(0,gStatsRecentName,OBJPROP_TEXT,recentOut);
+   ObjectSetString(0,gStatsNoteName,OBJPROP_TEXT,
+      "历史统计为K线触轨估算，成交价按所选轨道价格；点数=价格差×10");
 }
 
 //====================================================================
