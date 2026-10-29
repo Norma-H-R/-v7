@@ -104,7 +104,6 @@ double ResidualRMSAt(const int i,const int period,const int total,
    }
    return MathSqrt(sum/n);
 }
-input double InpStatsCostPointsPerPosition = 0.0; // 每笔仓位估算交易成本（统计点）；0表示不扣成本
 
 //==================== 触轨箭头与近10个交易日统计 ====================
 #define STATS_LINE_COUNT 24
