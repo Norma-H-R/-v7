@@ -50,6 +50,7 @@ input double InpKAMA_Width_Mult      = 1.00;
 input double InpFast_KAMAWidth_Scale = 1.00;
 
 input group "02 · 融合轨4综合动能驱离"
+input bool   InpEnableFusionTrack4 = true;
 input int    InpTrack4_MACD_Fast      = 7;
 input int    InpTrack4_MACD_Slow      = 14;
 input int    InpTrack4_MACD_Signal    = 5;
@@ -71,7 +72,6 @@ input double InpTrack4_RecoilSpeed    = 0.68;
 input group "03 · 统计与测试"
 
 #define UI_PREFIX "NMNX_CF30_"
-#define STATS_LINE_COUNT 24
 #define TRACK4_OFFSET_STEP 0.1
 
 double FastLine[], KAMALine[], KAMAUpper[], KAMALower[];
