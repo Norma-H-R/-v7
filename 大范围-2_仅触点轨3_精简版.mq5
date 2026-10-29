@@ -105,10 +105,8 @@ double KAMAWidthUpper[];
 double KAMAWidthLower[];
 double Track4Upper[];
 double Track4Lower[];
-double TouchTrack1Upper[];
-double TouchTrack1Lower[];
-double TouchTrack2Upper[];
-double TouchTrack2Lower[];
+// 触点轨1、触点轨2只作为公式概念，不单独保存数组。
+// 它们的结果直接折叠进触点轨3计算，减少中间数组和一轮遍历。
 
 //====================================================================
 // 内部计算数组
@@ -531,11 +529,6 @@ int OnCalculate(
    ArrayResize(KAMAWidthLower,rates_total);
    ArrayResize(Track4Upper,rates_total);
    ArrayResize(Track4Lower,rates_total);
-   ArrayResize(TouchTrack1Upper,rates_total);
-   ArrayResize(TouchTrack1Lower,rates_total);
-   ArrayResize(TouchTrack2Upper,rates_total);
-   ArrayResize(TouchTrack2Lower,rates_total);
-
    ArrayResize(FastLine,rates_total);
    ArrayResize(KAMALine,rates_total);
    ArrayResize(KAMAUpper,rates_total);
@@ -561,11 +554,6 @@ int OnCalculate(
    ArraySetAsSeries(KAMAWidthLower,true);
    ArraySetAsSeries(Track4Upper,true);
    ArraySetAsSeries(Track4Lower,true);
-   ArraySetAsSeries(TouchTrack1Upper,true);
-   ArraySetAsSeries(TouchTrack1Lower,true);
-   ArraySetAsSeries(TouchTrack2Upper,true);
-   ArraySetAsSeries(TouchTrack2Lower,true);
-
    ArraySetAsSeries(FastLine,true);
    ArraySetAsSeries(KAMALine,true);
    ArraySetAsSeries(KAMAUpper,true);
@@ -725,10 +713,12 @@ int OnCalculate(
          dataReady);
    }
 
-   // 第四阶段：计算触点轨1与触点轨2
-   // 触点轨1：融合轨4与KAMA宽度轨道对应上下轨的算术平均值。
-   // 触点轨2：以融合轨4为基线；融合轨4上轨高于KAMA上轨时改用KAMA上轨，
-   //          融合轨4下轨低于KAMA下轨时改用KAMA下轨。
+   // 第四阶段：直接计算触点轨3。
+   // 原公式等价于：
+   // 轨1上轨=(融合轨4上轨+KAMA宽度上轨)/2
+   // 轨2上轨=min(融合轨4上轨,KAMA宽度上轨)
+   // 轨3上轨=(轨1上轨+轨2上轨)/2
+   // 下轨对应使用 max()。直接展开可删除轨1/轨2中间数组和额外遍历。
    for(int i=rates_total-1; i>=0; i--)
    {
       if(Track4Upper[i] == EMPTY_VALUE ||
@@ -736,42 +726,23 @@ int OnCalculate(
          KAMAWidthUpper[i] == EMPTY_VALUE ||
          KAMAWidthLower[i] == EMPTY_VALUE)
       {
-         TouchTrack1Upper[i] = EMPTY_VALUE;
-         TouchTrack1Lower[i] = EMPTY_VALUE;
-         TouchTrack2Upper[i] = EMPTY_VALUE;
-         TouchTrack2Lower[i] = EMPTY_VALUE;
-         continue;
-      }
-
-      TouchTrack1Upper[i] = (Track4Upper[i] + KAMAWidthUpper[i]) * 0.5;
-      TouchTrack1Lower[i] = (Track4Lower[i] + KAMAWidthLower[i]) * 0.5;
-
-      TouchTrack2Upper[i] =
-         (Track4Upper[i] > KAMAWidthUpper[i])
-         ? KAMAWidthUpper[i]
-         : Track4Upper[i];
-
-      TouchTrack2Lower[i] =
-         (Track4Lower[i] < KAMAWidthLower[i])
-         ? KAMAWidthLower[i]
-         : Track4Lower[i];
-   }
-
-   // 触点轨3：触点轨1与触点轨2的平均值。
-   for(int i=rates_total-1; i>=0; i--)
-   {
-      if(TouchTrack1Upper[i] == EMPTY_VALUE ||
-         TouchTrack1Lower[i] == EMPTY_VALUE ||
-         TouchTrack2Upper[i] == EMPTY_VALUE ||
-         TouchTrack2Lower[i] == EMPTY_VALUE)
-      {
          TouchTrack3Upper[i] = EMPTY_VALUE;
          TouchTrack3Lower[i] = EMPTY_VALUE;
          continue;
       }
 
-      TouchTrack3Upper[i] = (TouchTrack1Upper[i] + TouchTrack2Upper[i]) * 0.5;
-      TouchTrack3Lower[i] = (TouchTrack1Lower[i] + TouchTrack2Lower[i]) * 0.5;
+      double track4Upper = Track4Upper[i];
+      double track4Lower = Track4Lower[i];
+      double kamaWidthUpper = KAMAWidthUpper[i];
+      double kamaWidthLower = KAMAWidthLower[i];
+
+      double track1Upper = (track4Upper + kamaWidthUpper) * 0.5;
+      double track2Upper = MathMin(track4Upper, kamaWidthUpper);
+      double track1Lower = (track4Lower + kamaWidthLower) * 0.5;
+      double track2Lower = MathMax(track4Lower, kamaWidthLower);
+
+      TouchTrack3Upper[i] = (track1Upper + track2Upper) * 0.5;
+      TouchTrack3Lower[i] = (track1Lower + track2Lower) * 0.5;
    }
 
    // 实时触轨对象固定为触点轨3。
