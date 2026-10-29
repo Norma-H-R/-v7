@@ -83,6 +83,7 @@ double adx[],plusDI[],minusDI[],stochK[],stochD[];
 double driveUpper[],driveLower[],energy[],fusionUpper[],fusionLower[];
 double avgGainFast[],avgLossFast[],avgGainSlow[],avgLossSlow[];
 double smoothTR[],smoothPlusDM[],smoothMinusDM[],dx[];
+double macdEmaFast[],macdEmaSlow[],macdSignalEma[],rawStoch[];
 
 double ClampV(const double x,const double lo,const double hi)
   {
@@ -117,6 +118,7 @@ bool ResizeAll(const int n)
    RESIZE_SERIES(energy); RESIZE_SERIES(fusionUpper); RESIZE_SERIES(fusionLower);
    RESIZE_SERIES(avgGainFast); RESIZE_SERIES(avgLossFast); RESIZE_SERIES(avgGainSlow); RESIZE_SERIES(avgLossSlow);
    RESIZE_SERIES(smoothTR); RESIZE_SERIES(smoothPlusDM); RESIZE_SERIES(smoothMinusDM); RESIZE_SERIES(dx);
+   RESIZE_SERIES(macdEmaFast); RESIZE_SERIES(macdEmaSlow); RESIZE_SERIES(macdSignalEma); RESIZE_SERIES(rawStoch);
 #undef RESIZE_SERIES
    return true;
   }
@@ -178,34 +180,19 @@ bool CalculateAll()
       refLower[i]=fastLine[i]-half*MathMax(0.01,InpFast_KAMAWidth_Scale);
      }
 
-   // MACD 主线及信号线。
+   // MACD 主线及信号线，使用 EA 内部缓存数组递推。
    for(int i=oldest;i>=0;i--)
      {
-      double ef=rates[i].close,es=rates[i].close;
-      if(i<oldest)
-        {
-         ef=aMF*rates[i].close+(1.0-aMF)*(macdMain[i+1]+(0.0)); // 先由专用 EMA 递推数组计算
-         es=aMS*rates[i].close+(1.0-aMS)*(macdSignal[i+1]+0.0);
-        }
-      // 下面的 MACD EMA 使用独立的静态递推缓存数组，避免混淆主线和信号线。
-      macdMain[i]=rates[i].close;
-      macdSignal[i]=rates[i].close;
-     }
-   double emaFast[],emaSlow[],sigEma[];
-   ArrayResize(emaFast,copied); ArrayResize(emaSlow,copied); ArrayResize(sigEma,copied);
-   ArraySetAsSeries(emaFast,true); ArraySetAsSeries(emaSlow,true); ArraySetAsSeries(sigEma,true);
-   for(int i=oldest;i>=0;i--)
-     {
-      if(i==oldest) { emaFast[i]=rates[i].close; emaSlow[i]=rates[i].close; }
+      if(i==oldest) { macdEmaFast[i]=rates[i].close; macdEmaSlow[i]=rates[i].close; }
       else
         {
-         emaFast[i]=aMF*rates[i].close+(1.0-aMF)*emaFast[i+1];
-         emaSlow[i]=aMS*rates[i].close+(1.0-aMS)*emaSlow[i+1];
+         macdEmaFast[i]=aMF*rates[i].close+(1.0-aMF)*macdEmaFast[i+1];
+         macdEmaSlow[i]=aMS*rates[i].close+(1.0-aMS)*macdEmaSlow[i+1];
         }
-      macdMain[i]=emaFast[i]-emaSlow[i];
-      if(i==oldest) sigEma[i]=macdMain[i];
-      else sigEma[i]=aSig*macdMain[i]+(1.0-aSig)*sigEma[i+1];
-      macdSignal[i]=sigEma[i];
+      macdMain[i]=macdEmaFast[i]-macdEmaSlow[i];
+      if(i==oldest) macdSignalEma[i]=macdMain[i];
+      else macdSignalEma[i]=aSig*macdMain[i]+(1.0-aSig)*macdSignalEma[i+1];
+      macdSignal[i]=macdSignalEma[i];
      }
 
    // RSI（Wilder 平滑）。
@@ -268,17 +255,15 @@ bool CalculateAll()
      }
 
    // 随机指标：STO_LOWHIGH，SMA 平滑，模拟原指标 K/D 输出。
-   double rawK[];
-   ArrayResize(rawK,copied); ArraySetAsSeries(rawK,true);
    for(int i=oldest;i>=0;i--)
      {
       int end=MathMin(oldest,i+MathMax(1,InpTrack4_KDJ_K)-1);
       double hh=rates[i].high,ll=rates[i].low;
       for(int j=i+1;j<=end;j++) { hh=MathMax(hh,rates[j].high); ll=MathMin(ll,rates[j].low); }
-      rawK[i]=(hh-ll<=_Point*0.01?50.0:100.0*(rates[i].close-ll)/(hh-ll));
+      rawStoch[i]=(hh-ll<=_Point*0.01?50.0:100.0*(rates[i].close-ll)/(hh-ll));
       int smoothEnd=MathMin(oldest,i+MathMax(1,InpTrack4_KDJ_Slowing)-1);
       double sum=0.0; int n=0;
-      for(int j=i;j<=smoothEnd;j++) { sum+=rawK[j]; n++; }
+      for(int j=i;j<=smoothEnd;j++) { sum+=rawStoch[j]; n++; }
       stochK[i]=sum/MathMax(1,n);
      }
    for(int i=oldest;i>=0;i--)
@@ -345,6 +330,144 @@ bool CalculateAll()
       fusionUpper[i]=baseUpper+driveUpper[i];
       fusionLower[i]=baseLower+driveLower[i];
      }
+   return true;
+  }
+
+// 当前K线内只更新索引0，避免每个报价重算整段历史。
+bool CalculateCurrentBar()
+  {
+   int n=ArraySize(rates);
+   if(n<MaxRequiredBars()) return false;
+   MqlRates latest[];
+   ArraySetAsSeries(latest,true);
+   if(CopyRates(_Symbol,PERIOD_M5,0,1,latest)!=1) return false;
+   rates[0]=latest[0];
+
+   double close0=rates[0].close;
+   double tr=MathMax(rates[0].high-rates[0].low,MathMax(MathAbs(rates[0].high-rates[1].close),MathAbs(rates[0].low-rates[1].close)));
+   atr[0]=(atr[1]*(MathMax(1,InpATR_Period)-1)+tr)/MathMax(1,InpATR_Period);
+   double alphaFast=2.0/(MathMax(1,InpFastEMA_Period)+1.0);
+   fastLine[0]=alphaFast*close0+(1.0-alphaFast)*fastLine[1];
+
+   double change=MathAbs(close0-rates[MathMin(n-1,MathMax(1,InpKAMA_ER_Period))].close);
+   double volatility=0.0;
+   int erEnd=MathMin(n-1,MathMax(1,InpKAMA_ER_Period));
+   for(int j=0;j<erEnd;j++) volatility+=MathAbs(rates[j].close-rates[j+1].close);
+   double er=ClampV(SafeDiv(change,volatility,0.0),0.0,1.0);
+   double fastSC=2.0/(MathMax(1,InpKAMA_Fast_Period)+1.0);
+   double slowSC=2.0/(MathMax(2,InpKAMA_Slow_Period)+1.0);
+   double sc=er*(fastSC-slowSC)+slowSC;
+   sc*=sc;
+   kama[0]=kama[1]+sc*(close0-kama[1]);
+
+   double sumSq=0.0;
+   int residualN=MathMin(MathMax(1,InpResidual_Period),n);
+   for(int j=0;j<residualN;j++)
+     {
+      double d=rates[j].close-kama[j];
+      sumSq+=d*d;
+     }
+   double rms=MathSqrt(sumSq/MathMax(1,residualN));
+   double half=MathMax(MathMax(atr[0]*InpATR_Min_Multiplier,rms*InpResidual_Multiplier)*InpKAMA_Width_Mult,_Point*2.0);
+   kamaUpper[0]=kama[0]+half;
+   kamaLower[0]=kama[0]-half;
+   refUpper[0]=fastLine[0]+half*MathMax(0.01,InpFast_KAMAWidth_Scale);
+   refLower[0]=fastLine[0]-half*MathMax(0.01,InpFast_KAMAWidth_Scale);
+
+   double aMF=2.0/(MathMax(1,InpTrack4_MACD_Fast)+1.0);
+   double aMS=2.0/(MathMax(1,InpTrack4_MACD_Slow)+1.0);
+   double aSig=2.0/(MathMax(1,InpTrack4_MACD_Signal)+1.0);
+   macdEmaFast[0]=aMF*close0+(1.0-aMF)*macdEmaFast[1];
+   macdEmaSlow[0]=aMS*close0+(1.0-aMS)*macdEmaSlow[1];
+   macdMain[0]=macdEmaFast[0]-macdEmaSlow[0];
+   macdSignalEma[0]=aSig*macdMain[0]+(1.0-aSig)*macdSignalEma[1];
+   macdSignal[0]=macdSignalEma[0];
+
+   double delta=close0-rates[1].close;
+   double gain=MathMax(delta,0.0),loss=MathMax(-delta,0.0);
+   avgGainFast[0]=(avgGainFast[1]*(InpTrack4_RSI_Fast-1)+gain)/MathMax(1,InpTrack4_RSI_Fast);
+   avgLossFast[0]=(avgLossFast[1]*(InpTrack4_RSI_Fast-1)+loss)/MathMax(1,InpTrack4_RSI_Fast);
+   avgGainSlow[0]=(avgGainSlow[1]*(InpTrack4_RSI_Slow-1)+gain)/MathMax(1,InpTrack4_RSI_Slow);
+   avgLossSlow[0]=(avgLossSlow[1]*(InpTrack4_RSI_Slow-1)+loss)/MathMax(1,InpTrack4_RSI_Slow);
+   rsiFast[0]=(avgLossFast[0]<=1.0e-12?100.0:100.0-100.0/(1.0+avgGainFast[0]/avgLossFast[0]));
+   rsiSlow[0]=(avgLossSlow[0]<=1.0e-12?100.0:100.0-100.0/(1.0+avgGainSlow[0]/avgLossSlow[0]));
+
+   for(int which=0;which<2;which++)
+     {
+      int p=(which==0?MathMax(1,InpTrack4_WPR_Fast):MathMax(1,InpTrack4_WPR_Slow));
+      int end=MathMin(n-1,p-1);
+      double hh=rates[0].high,ll=rates[0].low;
+      for(int j=1;j<=end;j++) { hh=MathMax(hh,rates[j].high); ll=MathMin(ll,rates[j].low); }
+      double v=(hh-ll<=_Point*0.01?-50.0:-100.0*(hh-close0)/(hh-ll));
+      if(which==0) wprFast[0]=v; else wprSlow[0]=v;
+     }
+
+   double tr0=rates[0].high-rates[0].low;
+   tr0=MathMax(tr0,MathAbs(rates[0].high-rates[1].close));
+   tr0=MathMax(tr0,MathAbs(rates[0].low-rates[1].close));
+   double upMove=rates[0].high-rates[1].high;
+   double downMove=rates[1].low-rates[0].low;
+   double up=(upMove>downMove && upMove>0.0?upMove:0.0);
+   double down=(downMove>upMove && downMove>0.0?downMove:0.0);
+   smoothTR[0]=(smoothTR[1]*(InpTrack4_ADX_Period-1)+tr0)/MathMax(1,InpTrack4_ADX_Period);
+   smoothPlusDM[0]=(smoothPlusDM[1]*(InpTrack4_ADX_Period-1)+up)/MathMax(1,InpTrack4_ADX_Period);
+   smoothMinusDM[0]=(smoothMinusDM[1]*(InpTrack4_ADX_Period-1)+down)/MathMax(1,InpTrack4_ADX_Period);
+   plusDI[0]=100.0*SafeDiv(smoothPlusDM[0],smoothTR[0],0.0);
+   minusDI[0]=100.0*SafeDiv(smoothMinusDM[0],smoothTR[0],0.0);
+   dx[0]=100.0*SafeDiv(MathAbs(plusDI[0]-minusDI[0]),plusDI[0]+minusDI[0],0.0);
+   adx[0]=(adx[1]*(InpTrack4_ADX_Period-1)+dx[0])/MathMax(1,InpTrack4_ADX_Period);
+
+   int kEnd=MathMin(n-1,MathMax(1,InpTrack4_KDJ_K)-1);
+   double kh=rates[0].high,kl=rates[0].low;
+   for(int j=1;j<=kEnd;j++) { kh=MathMax(kh,rates[j].high); kl=MathMin(kl,rates[j].low); }
+   rawStoch[0]=(kh-kl<=_Point*0.01?50.0:100.0*(close0-kl)/(kh-kl));
+   int smoothEnd=MathMin(n-1,MathMax(1,InpTrack4_KDJ_Slowing)-1);
+   double sum=0.0; int cnt=0;
+   for(int j=0;j<=smoothEnd;j++) { sum+=rawStoch[j]; cnt++; }
+   stochK[0]=sum/MathMax(1,cnt);
+   int dEnd=MathMin(n-1,MathMax(1,InpTrack4_KDJ_D)-1);
+   sum=0.0; cnt=0;
+   for(int j=0;j<=dEnd;j++) { sum+=stochK[j]; cnt++; }
+   stochD[0]=sum/MathMax(1,cnt);
+
+   if(!InpEnableFusionTrack4 || n<4)
+     { fusionUpper[0]=EMPTY_VALUE; fusionLower[0]=EMPTY_VALUE; return true; }
+   double atrScale=MathMax(atr[0],_Point*2.0);
+   double widthScale=MathMax(0.01,InpFast_KAMAWidth_Scale);
+   double baseUpper=fastLine[0]+MathMax(0.0,kamaUpper[0]-kama[0])*widthScale;
+   double baseLower=fastLine[0]-MathMax(0.0,kama[0]-kamaLower[0])*widthScale;
+   double hist=macdMain[0]-macdSignal[0],oldHist=macdMain[1]-macdSignal[1];
+   double k=stochK[0],d=stochD[0],jLine=3.0*k-2.0*d;
+   double rsiScore=0.60*ClampV((rsiFast[0]-rsiSlow[0])/15.0,-1.0,1.0)+0.40*ClampV((rsiSlow[0]-50.0)/25.0,-1.0,1.0);
+   double wprScore=0.60*ClampV((wprFast[0]-wprSlow[0])/25.0,-1.0,1.0)+0.40*ClampV((wprSlow[0]+50.0)/35.0,-1.0,1.0);
+   double macdLevel=ClampV(hist/MathMax(atrScale*0.12,_Point),-1.0,1.0);
+   double macdChange=ClampV((hist-oldHist)/MathMax(atrScale*0.08,_Point),-1.0,1.0);
+   double macdScore=0.70*macdLevel+0.30*macdChange;
+   double kdjScore=0.45*ClampV((k-d)/20.0,-1.0,1.0)+0.35*ClampV((jLine-50.0)/45.0,-1.0,1.0)+0.20*ClampV((k-50.0)/35.0,-1.0,1.0);
+   double diScore=ClampV(SafeDiv(plusDI[0]-minusDI[0],MathMax(plusDI[0]+minusDI[0],1.0),0.0),-1.0,1.0);
+   double priceSlope=ClampV((close0-rates[3].close)/MathMax(atrScale*1.50,_Point),-1.0,1.0);
+   double body=ClampV((close0-rates[0].open)/MathMax(atrScale*0.80,_Point),-1.0,1.0);
+   double priceScore=0.70*priceSlope+0.30*body;
+   double directionScore=ClampV(0.18*rsiScore+0.14*wprScore+0.24*macdScore+0.14*kdjScore+0.18*diScore+0.12*priceScore,-1.0,1.0);
+   double adxStrength=ClampV((adx[0]-InpTrack4_ADX_Weak)/MathMax(InpTrack4_ADX_Strong-InpTrack4_ADX_Weak,1.0),0.0,1.0);
+   double continuity=ClampV(MathAbs(close0-rates[3].close)/MathMax(atrScale*1.20,_Point),0.0,1.0);
+   double rawEnergy=ClampV((MathAbs(directionScore)-0.08)/0.92,0.0,1.0);
+   double e=ClampV(rawEnergy*(0.15+0.85*adxStrength)*(0.08+0.92*continuity),0.0,1.0);
+   energy[0]=e;
+   double targetU=0.0,targetL=0.0;
+   if(directionScore>0.0) { targetU=atrScale*InpTrack4_MaxDrive_ATR*e; targetL=atrScale*InpTrack4_MaxLift_ATR*e; }
+   else if(directionScore<0.0) { targetU=-atrScale*InpTrack4_MaxLift_ATR*e; targetL=-atrScale*InpTrack4_MaxDrive_ATR*e; }
+   double prevU=driveUpper[1],prevL=driveLower[1],prevE=energy[1];
+   double expand=ClampV(InpTrack4_ExpandSpeed,0.01,1.0),recoil=ClampV(InpTrack4_RecoilSpeed,0.01,1.0);
+   double fade=ClampV((prevE-e)*1.50,0.0,1.0);
+   bool upperExp=((prevU==0.0 || targetU*prevU>0.0) && MathAbs(targetU)>MathAbs(prevU));
+   bool lowerExp=((prevL==0.0 || targetL*prevL>0.0) && MathAbs(targetL)>MathAbs(prevL));
+   double upperRate=(upperExp?expand:ClampV(recoil+0.20*fade,recoil,0.95));
+   double lowerRate=(lowerExp?expand:ClampV(recoil+0.20*fade,recoil,0.95));
+   driveUpper[0]=prevU+upperRate*(targetU-prevU);
+   driveLower[0]=prevL+lowerRate*(targetL-prevL);
+   fusionUpper[0]=baseUpper+driveUpper[0];
+   fusionLower[0]=baseLower+driveLower[0];
    return true;
   }
 
@@ -560,7 +683,14 @@ void OnTick()
       gUpperTouchPrice=0.0;
       gLowerTouchPrice=0.0;
      }
-   if(!CalculateAll()) return;
+   if(newBar || ArraySize(rates)<MaxRequiredBars())
+     {
+      if(!CalculateAll()) return;
+     }
+   else
+     {
+      if(!CalculateCurrentBar()) return;
+     }
    if(ArraySize(rates)<4 || fusionUpper[0]==EMPTY_VALUE || fusionLower[0]==EMPTY_VALUE) return;
 
    // 与原指标一致：逐报价检查当前K线最高/最低，一旦触轨就锁定触碰瞬间的轨道价。
