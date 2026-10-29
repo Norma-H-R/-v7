@@ -644,6 +644,8 @@ double gUpperOffset[5]={0.0,0.0,0.0,0.0,0.0}; // B外沿比较、KAMA宽度、E�
 double gLowerOffset[5]={0.0,0.0,0.0,0.0,0.0};
 int gCachedRatesTotal=0;
 bool gTouchSpacingFilter=true; // 默认开启：任意3根K线范围内最多接受一个触点
+bool gStatsEnabled=true; // 关闭后不运行历史盈亏统计计算
+bool gStatsDirty=true; // 轨道偏移或新K线出现后需要刷新统计
 bool gLiteRailVisible[4]={true,true,true,true}; // 四条目标轨道仅控制绘制，不影响计算
 string gButtonText[UI_BUTTON_COUNT] =
   {"快速通道","卡尔曼通道","KAMA通道","中位通道","融合通道",
@@ -1348,6 +1350,87 @@ void SetStatsLine(const int row,const string text,const color clr=clrWhite)
    ObjectSetString(0,name,OBJPROP_TEXT,text);
    ObjectSetInteger(0,name,OBJPROP_COLOR,clr);
   }
+string StatsToggleButtonName() { return UI_PREFIX+"STATS_TOGGLE"; }
+void CreateStatsToggleButton()
+  {
+   string name=StatsToggleButtonName();
+   if(ObjectFind(0,name)>=0) ObjectDelete(0,name);
+   ObjectCreate(0,name,OBJ_BUTTON,0,0,0);
+   ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,8);
+   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,8+STATS_LINE_COUNT*16+12);
+   ObjectSetInteger(0,name,OBJPROP_XSIZE,224);
+   ObjectSetInteger(0,name,OBJPROP_YSIZE,24);
+   ObjectSetInteger(0,name,OBJPROP_FONTSIZE,9);
+   ObjectSetString(0,name,OBJPROP_FONT,"Microsoft YaHei UI");
+   ObjectSetInteger(0,name,OBJPROP_COLOR,clrWhite);
+   ObjectSetInteger(0,name,OBJPROP_SELECTABLE,true);
+   ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+   ObjectSetInteger(0,name,OBJPROP_STATE,false);
+   UpdateStatsToggleButton();
+  }
+void UpdateStatsToggleButton()
+  {
+   string name=StatsToggleButtonName();
+   if(ObjectFind(0,name)<0) return;
+   ObjectSetString(0,name,OBJPROP_TEXT,gStatsEnabled?"统计面板与统计计算：[开]":"统计面板与统计计算：[关]");
+   ObjectSetInteger(0,name,OBJPROP_BGCOLOR,gStatsEnabled?clrDarkGreen:clrDimGray);
+   ObjectSetInteger(0,name,OBJPROP_BORDER_COLOR,clrSilver);
+   ObjectSetInteger(0,name,OBJPROP_STATE,false);
+  }
+void DeleteStatsPanelObjects()
+  {
+   string bg=StatsBackgroundName();
+   if(ObjectFind(0,bg)>=0) ObjectDelete(0,bg);
+   for(int i=0;i<STATS_LINE_COUNT;i++)
+     {
+      string n=StatsObjectName(i);
+      if(ObjectFind(0,n)>=0) ObjectDelete(0,n);
+     }
+  }
+void CreateLiteKamaOffsetButtons()
+  {
+   // 仅创建KAMA宽度参考轨的上下偏移控制。
+   for(int n=6;n<=11;n++)
+     {
+      string name=UI_PREFIX+"OFF_"+IntegerToString(n);
+      if(ObjectFind(0,name)>=0) ObjectDelete(0,name);
+      ObjectCreate(0,name,OBJ_BUTTON,0,0,0);
+      int row=n/3,action=n%3;
+      ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+      ObjectSetInteger(0,name,OBJPROP_XDISTANCE,(action==0?12:(action==1?48:190)));
+      ObjectSetInteger(0,name,OBJPROP_YDISTANCE,625+(row-2)*25);
+      ObjectSetInteger(0,name,OBJPROP_XSIZE,(action==1?138:32));
+      ObjectSetInteger(0,name,OBJPROP_YSIZE,22);
+      ObjectSetInteger(0,name,OBJPROP_FONTSIZE,8);
+      ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+      ObjectSetInteger(0,name,OBJPROP_SELECTABLE,true);
+      ObjectSetInteger(0,name,OBJPROP_STATE,false);
+      UpdateOffsetButtonLook(n);
+     }
+  }
+void UpdateTouchArrowsOnly(const int rates_total,const datetime &time[],const double &open[],const double &high[],const double &low[],const double &close[])
+  {
+   if(rates_total<3) return;
+   ArrayInitialize(SellTouchArrow,EMPTY_VALUE);
+   ArrayInitialize(BuyTouchArrow,EMPTY_VALUE);
+   int lastAcceptedTouchIndex=-1,lastAcceptedTouchDirection=0;
+   for(int i=rates_total-1;i>=1;i--)
+     {
+      if(Composite4Upper[i]==EMPTY_VALUE || Composite4Lower[i]==EMPTY_VALUE ||
+         !MathIsValidNumber(Composite4Upper[i]) || !MathIsValidNumber(Composite4Lower[i])) continue;
+      bool upper=(high[i]>=Composite4Upper[i]),lower=(low[i]<=Composite4Lower[i]);
+      if(!upper && !lower) continue;
+      int direction=(lower&&!upper?1:(upper&&!lower?-1:0));
+      bool opposite=(direction!=0 && lastAcceptedTouchDirection!=0 && direction!=lastAcceptedTouchDirection);
+      if(gTouchSpacingFilter && !opposite && direction!=0 && lastAcceptedTouchIndex>=0 &&
+         (lastAcceptedTouchIndex-i)<3 && direction==lastAcceptedTouchDirection) continue;
+      if(upper) SellTouchArrow[i]=Composite4Upper[i];
+      if(lower) BuyTouchArrow[i]=Composite4Lower[i];
+      lastAcceptedTouchIndex=i;
+      lastAcceptedTouchDirection=direction;
+     }
+  }
 string LiteRailButtonName(const int index)
   {
    return UI_PREFIX+"LITE_RAIL_"+IntegerToString(index);
@@ -1372,7 +1455,7 @@ void CreateLiteRailButtons()
   {
    string labels[4]={"KAMA参考上轨","KAMA参考下轨","融合轨4上轨","融合轨4下轨"};
    int xs[4]={250,385,520,655};
-   int ys[4]={685,685,685,685};
+   int ys[4]={675,675,700,700};
    for(int i=0;i<4;i++)
      {
       string name=LiteRailButtonName(i);
@@ -1797,8 +1880,10 @@ int OnInit()
    PlotIndexSetInteger(38,PLOT_DRAW_TYPE,InpEnableFusionTrack4 ? DRAW_LINE : DRAW_NONE);
    ApplyPlotVisibility();
    // 精简盘面：隐藏原多通道按钮和调试面板，只保留统计面板与四条目标轨道/箭头。
-   CreateStatsPanel();
+   if(gStatsEnabled) CreateStatsPanel();
+   CreateStatsToggleButton();
    CreateTouchFilterButton();
+   CreateLiteKamaOffsetButtons();
    CreateTrack4DeviationButtons();
    CreateLiteRailButtons();
 
@@ -2015,6 +2100,22 @@ void OnChartEvent(const int id,const long &lparam,const double &dparam,const str
    if(id!=CHARTEVENT_OBJECT_CLICK || StringFind(sparam,UI_PREFIX)!=0)
       return;
 
+   if(sparam==StatsToggleButtonName())
+     {
+      gStatsEnabled=!gStatsEnabled;
+      gStatsDirty=true;
+      if(gStatsEnabled) CreateStatsPanel();
+      else
+        {
+         DeleteStatsPanelObjects();
+         ClearLossTradeLines();
+        }
+      UpdateStatsToggleButton();
+      ObjectSetInteger(0,sparam,OBJPROP_STATE,false);
+      ChartRedraw(0);
+      return;
+     }
+
    for(int rail=0;rail<4;rail++)
      {
       if(sparam==LiteRailButtonName(rail))
@@ -2138,6 +2239,7 @@ void OnChartEvent(const int id,const long &lparam,const double &dparam,const str
           GlobalVariableSet(RuntimeSwitchKey(rail=="UP" ? "TRACK4_UP_OFFSET_V065" : "TRACK4_DN_OFFSET_V065"),Track4OffsetValue(rail));
           UpdateTrack4DeviationButtons();
           RebuildTrack4();
+          gStatsDirty=true;
           ObjectSetInteger(0,sparam,OBJPROP_STATE,false);
           ChartRedraw(0);
           return;
@@ -2163,6 +2265,7 @@ void OnChartEvent(const int id,const long &lparam,const double &dparam,const str
             RebuildOffsetChannel(channel);
             if(channel==0 || channel==2 || channel==4) RebuildOffsetChannel(3);
             if(channel==4) RebuildOffsetChannel(2);
+            gStatsDirty=true;
             UpdateDebugPanel();
            }
          ObjectSetInteger(0,sparam,OBJPROP_STATE,false);
@@ -2332,74 +2435,54 @@ int OnCalculate(const int rates_total,
                 const long &tick_volume[],
                 const long &volume[],
                 const int &spread[])
-{
-   // 显式统一为时间序列方向：索引 0 为当前K线，索引越大越旧。
+  {
    ArraySetAsSeries(time,true);
    ArraySetAsSeries(open,true);
    ArraySetAsSeries(high,true);
    ArraySetAsSeries(low,true);
    ArraySetAsSeries(close,true);
-
-   if(rates_total<MathMax(MathMax(InpKAMA_ER_Period,InpATR_Period),InpMedian_Period)+3)
+   if(rates_total<MathMax(MathMax(InpKAMA_ER_Period,InpATR_Period),InpResidual_Period)+4)
       return 0;
 
-   ArrayResize(CompositeDynamicKUpper,rates_total);
-   ArraySetAsSeries(CompositeDynamicKUpper,true);
-   ArrayResize(CompositeDynamicKLower,rates_total);
-   ArraySetAsSeries(CompositeDynamicKLower,true);
+   bool full=(prev_calculated<=0 || prev_calculated>rates_total || gForceFullRecalc);
+   int start=(full ? rates_total-1 : (int)MathMin(rates_total-1,rates_total-prev_calculated));
+   gForceFullRecalc=false;
    gCachedRatesTotal=rates_total;
-   ArrayResize(Composite3BaseUpper,rates_total); ArraySetAsSeries(Composite3BaseUpper,true);
-   ArrayResize(Composite3BaseLower,rates_total); ArraySetAsSeries(Composite3BaseLower,true);
-   ArrayResize(Composite4BaseUpper,rates_total); ArraySetAsSeries(Composite4BaseUpper,true);
-   ArrayResize(Composite4BaseLower,rates_total); ArraySetAsSeries(Composite4BaseLower,true);
+
+   ArrayResize(Atr,rates_total); ArraySetAsSeries(Atr,true);
    ArrayResize(Track4DriveUpper,rates_total); ArraySetAsSeries(Track4DriveUpper,true);
    ArrayResize(Track4DriveLower,rates_total); ArraySetAsSeries(Track4DriveLower,true);
    ArrayResize(Track4Energy,rates_total); ArraySetAsSeries(Track4Energy,true);
+   ArrayResize(Composite4BaseUpper,rates_total); ArraySetAsSeries(Composite4BaseUpper,true);
+   ArrayResize(Composite4BaseLower,rates_total); ArraySetAsSeries(Composite4BaseLower,true);
 
-   // 增量计算：正常行情只重算当前K线；新K线出现时重算上一根已收盘K线和当前K线。
-   // 首次加载、历史数据变化或终端要求重算时，才完整计算全部历史。
-   int start;
-   if(gForceFullRecalc || prev_calculated<=0 || prev_calculated>rates_total)
-     {
-      start=rates_total-1;
-      gForceFullRecalc=false;
-     }
-   else
-      start=(int)MathMin(rates_total-1, rates_total-prev_calculated);
+   // 普通报价只读取当前计算段所需的动能数据；关闭统计时绝不复制全历史指标数据。
+   int copyCount=(full ? rates_total : MathMin(rates_total,start+2));
+   double macdMain[],macdSignal[],rsi7[],rsi17[],wpr7[],wpr14[],kdjK[],kdjD[],adx[],plusDI[],minusDI[];
+   ArrayResize(macdMain,copyCount); ArrayResize(macdSignal,copyCount);
+   ArrayResize(rsi7,copyCount); ArrayResize(rsi17,copyCount);
+   ArrayResize(wpr7,copyCount); ArrayResize(wpr14,copyCount);
+   ArrayResize(kdjK,copyCount); ArrayResize(kdjD,copyCount);
+   ArrayResize(adx,copyCount); ArrayResize(plusDI,copyCount); ArrayResize(minusDI,copyCount);
+   ArraySetAsSeries(macdMain,true); ArraySetAsSeries(macdSignal,true);
+   ArraySetAsSeries(rsi7,true); ArraySetAsSeries(rsi17,true);
+   ArraySetAsSeries(wpr7,true); ArraySetAsSeries(wpr14,true);
+   ArraySetAsSeries(kdjK,true); ArraySetAsSeries(kdjD,true);
+   ArraySetAsSeries(adx,true); ArraySetAsSeries(plusDI,true); ArraySetAsSeries(minusDI,true);
+   bool dataReady=true;
+   if(CopyBuffer(gTrack4MACDHandle,0,0,copyCount,macdMain)<copyCount) dataReady=false;
+   if(CopyBuffer(gTrack4MACDHandle,1,0,copyCount,macdSignal)<copyCount) dataReady=false;
+   if(CopyBuffer(gTrack4RSI7Handle,0,0,copyCount,rsi7)<copyCount) dataReady=false;
+   if(CopyBuffer(gTrack4RSI17Handle,0,0,copyCount,rsi17)<copyCount) dataReady=false;
+   if(CopyBuffer(gTrack4WPR7Handle,0,0,copyCount,wpr7)<copyCount) dataReady=false;
+   if(CopyBuffer(gTrack4WPR14Handle,0,0,copyCount,wpr14)<copyCount) dataReady=false;
+   if(CopyBuffer(gTrack4KDJHandle,0,0,copyCount,kdjK)<copyCount) dataReady=false;
+   if(CopyBuffer(gTrack4KDJHandle,1,0,copyCount,kdjD)<copyCount) dataReady=false;
+   if(CopyBuffer(gTrack4ADXHandle,0,0,copyCount,adx)<copyCount) dataReady=false;
+   if(CopyBuffer(gTrack4ADXHandle,1,0,copyCount,plusDI)<copyCount) dataReady=false;
+   if(CopyBuffer(gTrack4ADXHandle,2,0,copyCount,minusDI)<copyCount) dataReady=false;
+   if(!dataReady) { gForceFullRecalc=true; return prev_calculated; }
 
-   ArrayResize(Atr,rates_total);
-   ArrayResize(KalmanP,rates_total);
-   ArrayResize(FusionRaw,rates_total);
-   ArraySetAsSeries(Atr,true);
-   ArraySetAsSeries(KalmanP,true);
-   ArraySetAsSeries(FusionRaw,true);
-
-   // 融合轨2所需指标读取到序列数组。融合轨4使用独立句柄，不依赖轨2的开关或参数。
-   ArrayResize(Track2MACDMain,rates_total); ArraySetAsSeries(Track2MACDMain,true);
-   ArrayResize(Track2MACDSignal,rates_total); ArraySetAsSeries(Track2MACDSignal,true);
-   ArrayResize(Track2RSI7,rates_total); ArraySetAsSeries(Track2RSI7,true);
-   ArrayResize(Track2RSI14,rates_total); ArraySetAsSeries(Track2RSI14,true);
-   ArrayResize(Track2WPR,rates_total); ArraySetAsSeries(Track2WPR,true);
-   ArrayResize(Track2ADX,rates_total); ArraySetAsSeries(Track2ADX,true);
-   ArrayResize(Track2PlusDI,rates_total); ArraySetAsSeries(Track2PlusDI,true);
-   ArrayResize(Track2MinusDI,rates_total); ArraySetAsSeries(Track2MinusDI,true);
-   bool track2DataReady=true;
-   if(InpEnableFusionTrack2)
-     {
-      if(CopyBuffer(gTrack2MACDHandle,0,0,rates_total,Track2MACDMain)<rates_total) track2DataReady=false;
-      if(CopyBuffer(gTrack2MACDHandle,1,0,rates_total,Track2MACDSignal)<rates_total) track2DataReady=false;
-      if(CopyBuffer(gTrack2RSI7Handle,0,0,rates_total,Track2RSI7)<rates_total) track2DataReady=false;
-      if(CopyBuffer(gTrack2RSI14Handle,0,0,rates_total,Track2RSI14)<rates_total) track2DataReady=false;
-      if(CopyBuffer(gTrack2WPRHandle,0,0,rates_total,Track2WPR)<rates_total) track2DataReady=false;
-      if(CopyBuffer(gTrack2ADXHandle,0,0,rates_total,Track2ADX)<rates_total) track2DataReady=false;
-      if(CopyBuffer(gTrack2ADXHandle,1,0,rates_total,Track2PlusDI)<rates_total) track2DataReady=false;
-      if(CopyBuffer(gTrack2ADXHandle,2,0,rates_total,Track2MinusDI)<rates_total) track2DataReady=false;
-      // 句柄首次加载时可能暂未准备好全部历史数据，下一次完整重算会自动补齐。
-      if(!track2DataReady) gForceFullRecalc=true;
-     }
-
-   bool track4DataReady=true;
-   // 融合轨4使用独立指标句柄，避免更改融合轨2参数时意外改变轨4的综合能量。
    ArrayResize(Track4MACDMain,rates_total); ArraySetAsSeries(Track4MACDMain,true);
    ArrayResize(Track4MACDSignal,rates_total); ArraySetAsSeries(Track4MACDSignal,true);
    ArrayResize(Track4RSI7,rates_total); ArraySetAsSeries(Track4RSI7,true);
@@ -2411,376 +2494,60 @@ int OnCalculate(const int rates_total,
    ArrayResize(Track4ADX,rates_total); ArraySetAsSeries(Track4ADX,true);
    ArrayResize(Track4PlusDI,rates_total); ArraySetAsSeries(Track4PlusDI,true);
    ArrayResize(Track4MinusDI,rates_total); ArraySetAsSeries(Track4MinusDI,true);
-   if(InpEnableFusionTrack4)
+   for(int k=0;k<copyCount;k++)
      {
-      if(CopyBuffer(gTrack4MACDHandle,0,0,rates_total,Track4MACDMain)<rates_total) track4DataReady=false;
-      if(CopyBuffer(gTrack4MACDHandle,1,0,rates_total,Track4MACDSignal)<rates_total) track4DataReady=false;
-      if(CopyBuffer(gTrack4RSI7Handle,0,0,rates_total,Track4RSI7)<rates_total) track4DataReady=false;
-      if(CopyBuffer(gTrack4RSI17Handle,0,0,rates_total,Track4RSI17)<rates_total) track4DataReady=false;
-      if(CopyBuffer(gTrack4WPR7Handle,0,0,rates_total,Track4WPR7)<rates_total) track4DataReady=false;
-      if(CopyBuffer(gTrack4WPR14Handle,0,0,rates_total,Track4WPR14)<rates_total) track4DataReady=false;
-      if(CopyBuffer(gTrack4KDJHandle,0,0,rates_total,Track4K)<rates_total) track4DataReady=false;
-      if(CopyBuffer(gTrack4KDJHandle,1,0,rates_total,Track4D)<rates_total) track4DataReady=false;
-      if(CopyBuffer(gTrack4ADXHandle,0,0,rates_total,Track4ADX)<rates_total) track4DataReady=false;
-      if(CopyBuffer(gTrack4ADXHandle,1,0,rates_total,Track4PlusDI)<rates_total) track4DataReady=false;
-      if(CopyBuffer(gTrack4ADXHandle,2,0,rates_total,Track4MinusDI)<rates_total) track4DataReady=false;
-      if(!track4DataReady) gForceFullRecalc=true;
+      Track4MACDMain[k]=macdMain[k]; Track4MACDSignal[k]=macdSignal[k];
+      Track4RSI7[k]=rsi7[k]; Track4RSI17[k]=rsi17[k];
+      Track4WPR7[k]=wpr7[k]; Track4WPR14[k]=wpr14[k];
+      Track4K[k]=kdjK[k]; Track4D[k]=kdjD[k];
+      Track4ADX[k]=adx[k]; Track4PlusDI[k]=plusDI[k]; Track4MinusDI[k]=minusDI[k];
      }
 
    double alphaFast=2.0/(InpFastEMA_Period+1.0);
-   double alphaFusion=2.0/(InpFusion_Smooth_Period+1.0);
    double fastSC=2.0/(InpKAMA_Fast_Period+1.0);
    double slowSC=2.0/(InpKAMA_Slow_Period+1.0);
-   double weightSum=0.0;
-   if(gLineUsed[0])   weightSum+=MathMax(0.0,InpWeight_Fast);
-   if(gLineUsed[1]) weightSum+=MathMax(0.0,InpWeight_Kalman);
-   if(gLineUsed[2])   weightSum+=MathMax(0.0,InpWeight_KAMA);
-   if(gLineUsed[3]) weightSum+=MathMax(0.0,InpWeight_Median);
-
-   // 从需要更新的最旧K线递推到当前K线。时间序列索引越大，K线越旧。
    for(int i=start;i>=0;i--)
-   {
+     {
       double tr=high[i]-low[i];
       if(i<rates_total-1)
-      {
+        {
          tr=MathMax(tr,MathAbs(high[i]-close[i+1]));
          tr=MathMax(tr,MathAbs(low[i]-close[i+1]));
          Atr[i]=(Atr[i+1]*(InpATR_Period-1)+tr)/InpATR_Period;
-      }
+        }
+      else Atr[i]=tr;
+      if(i==rates_total-1) FastLine[i]=close[i];
+      else FastLine[i]=alphaFast*close[i]+(1.0-alphaFast)*FastLine[i+1];
+      if(i==rates_total-1) KAMALine[i]=close[i];
       else
-         Atr[i]=tr;
-
-      double atrValue=MathMax(Atr[i],_Point*2.0);
-
-      // 1. 快速响应线：低周期EMA，目标是先反映变化，不追求过度平滑。
-      if(i==rates_total-1)
-         FastLine[i]=close[i];
-      else
-         FastLine[i]=alphaFast*close[i]+(1.0-alphaFast)*FastLine[i+1];
-
-      // 2. 卡尔曼原线：独立使用收盘价作为观测，不耦合其他指标分数。
-      double q=atrValue*atrValue*InpKalman_Q_Factor;
-      double r=atrValue*atrValue*InpKalman_R_Factor;
-      if(i==rates_total-1)
-      {
-         KalmanLine[i]=close[i];
-         KalmanP[i]=MathMax(r,1.0e-8);
-      }
-      else
-      {
-         double predictedP=KalmanP[i+1]+q;
-         double gain=predictedP/(predictedP+r);
-         gain=ClampValue(gain,0.01,0.99);
-         KalmanLine[i]=KalmanLine[i+1]+gain*(close[i]-KalmanLine[i+1]);
-         KalmanP[i]=(1.0-gain)*predictedP;
-      }
-
-      // 3. KAMA：效率比控制快慢。
-      if(i==rates_total-1)
-         KAMALine[i]=close[i];
-      else
-      {
+        {
          int oldIndex=MathMin(rates_total-1,i+InpKAMA_ER_Period);
-         double change=MathAbs(close[i]-close[oldIndex]);
-         double volatility=0.0;
+         double change=MathAbs(close[i]-close[oldIndex]),volatility=0.0;
          int endIndex=MathMin(rates_total-1,i+InpKAMA_ER_Period-1);
-         for(int j=i;j<=endIndex;j++)
-         {
-            int next=j+1;
-            if(next<rates_total)
-               volatility+=MathAbs(close[j]-close[next]);
-         }
-         double er=(volatility>0.0 ? change/volatility : 0.0);
+         for(int j=i;j<=endIndex;j++) if(j+1<rates_total) volatility+=MathAbs(close[j]-close[j+1]);
+         double er=(volatility>0.0?change/volatility:0.0);
          er=ClampValue(er,0.0,1.0);
-         double sc=er*(fastSC-slowSC)+slowSC;
-         sc*=sc;
+         double sc=er*(fastSC-slowSC)+slowSC; sc*=sc;
          KAMALine[i]=KAMALine[i+1]+sc*(close[i]-KAMALine[i+1]);
-      }
-
-      // 4. 局部中位结构线：窗口只使用当前及更旧K线。
-      MedianLine[i]=MedianAt(i,InpMedian_Period,rates_total,high,low);
-
-      // 5. 原始融合线：四条基础线等输入后按权重融合，可独立调节权重。
-      double fusionSum=0.0;
-      if(gLineUsed[0])   fusionSum+=MathMax(0.0,InpWeight_Fast)*FastLine[i];
-      if(gLineUsed[1]) fusionSum+=MathMax(0.0,InpWeight_Kalman)*KalmanLine[i];
-      if(gLineUsed[2])   fusionSum+=MathMax(0.0,InpWeight_KAMA)*KAMALine[i];
-      if(gLineUsed[3]) fusionSum+=MathMax(0.0,InpWeight_Median)*MedianLine[i];
-      FusionRaw[i]=(weightSum>0.0 ? fusionSum/weightSum : close[i]);
-
-      if(i==rates_total-1 || InpFusion_Smooth_Period==1)
-         FusionLine[i]=FusionRaw[i];
-      else
-         FusionLine[i]=alphaFusion*FusionRaw[i]+(1.0-alphaFusion)*FusionLine[i+1];
-   }
-
-   // 各条线独立计算残差宽度。先完整生成五条线，再生成各自上下轨。
-   for(int i=start;i>=0;i--)
-   {
-      double atrValue=MathMax(Atr[i],_Point*2.0);
-      double minHalf=atrValue*InpATR_Min_Multiplier;
-
-      double wFast=MathMax(minHalf,ResidualRMSAt(i,InpResidual_Period,rates_total,close,FastLine)*InpResidual_Multiplier)*InpFast_Width_Mult;
-      double wKalman=MathMax(minHalf,ResidualRMSAt(i,InpResidual_Period,rates_total,close,KalmanLine)*InpResidual_Multiplier)*InpKalman_Width_Mult;
-      double wKAMA=MathMax(minHalf,ResidualRMSAt(i,InpResidual_Period,rates_total,close,KAMALine)*InpResidual_Multiplier)*InpKAMA_Width_Mult;
-      double wMedian=MathMax(minHalf,ResidualRMSAt(i,InpResidual_Period,rates_total,close,MedianLine)*InpResidual_Multiplier)*InpMedian_Width_Mult;
-      double wFusion=MathMax(minHalf,ResidualRMSAt(i,InpResidual_Period,rates_total,close,FusionLine)*InpResidual_Multiplier)*InpFusion_Width_Mult;
-
-      FastUpper[i]=FastLine[i]+wFast;
-      FastLower[i]=FastLine[i]-wFast;
-      KalmanUpper[i]=KalmanLine[i]+wKalman;
-      KalmanLower[i]=KalmanLine[i]-wKalman;
-      KAMAUpper[i]=KAMALine[i]+wKAMA;
-      KAMALower[i]=KAMALine[i]-wKAMA;
-      MedianUpper[i]=MedianLine[i]+wMedian;
-      MedianLower[i]=MedianLine[i]-wMedian;
-      FusionUpper[i]=FusionLine[i]+wFusion;
-      FusionLower[i]=FusionLine[i]-wFusion;
-
-      // 新实验：通道中心使用快速线，宽度直接借用KAMA原通道的上下半宽。
-      // 不使用快速线自身残差重新计算宽度，避免把中心与宽度来源混在一起。
-      double kamaHalfUp=MathMax(0.0,KAMAUpper[i]-KAMALine[i]);
-      double kamaHalfDown=MathMax(0.0,KAMALine[i]-KAMALower[i]);
-      double scale=MathMax(0.01,InpFast_KAMAWidth_Scale);
-      FastKAMAWidthUpper[i]=FastLine[i]+kamaHalfUp*scale+gUpperOffset[1];
-      FastKAMAWidthLower[i]=FastLine[i]-kamaHalfDown*scale+gLowerOffset[1];
-      double baseKAMAWidthUpper=FastLine[i]+kamaHalfUp*scale;
-      double baseKAMAWidthLower=FastLine[i]-kamaHalfDown*scale;
-
-      // 五条基础通道引用状态。显示开关不参与这里的判断，只由 InpUse_* 控制计算引用。
-      double baseUpper[5]={FastUpper[i],KalmanUpper[i],KAMAUpper[i],MedianUpper[i],FusionUpper[i]};
-      double baseLower[5]={FastLower[i],KalmanLower[i],KAMALower[i],MedianLower[i],FusionLower[i]};
-      bool useBase[5]={gLineUsed[0],gLineUsed[1],gLineUsed[2],gLineUsed[3],gLineUsed[4]};
-      double sum5U=0.0,sum5L=0.0; int count5=0;
-      for(int k=0;k<5;k++)
-        if(useBase[k]) { sum5U+=baseUpper[k]; sum5L+=baseLower[k]; count5++; }
-      Avg5Upper[i]=(count5>0 ? sum5U/count5 : EMPTY_VALUE);
-      Avg5Lower[i]=(count5>0 ? sum5L/count5 : EMPTY_VALUE);
-
-      // B：仅当快速线与KAMA线都允许被引用时，才把“快速线中心+KAMA宽度”作为候选组。
-      bool useKAMAWidth=(gLineUsed[0] && gLineUsed[2]);
-      if(count5>0 && useKAMAWidth)
-        {
-         NewVsAvgUpper[i]=MathMax(baseKAMAWidthUpper,Avg5Upper[i])+gUpperOffset[0];
-         NewVsAvgLower[i]=MathMin(baseKAMAWidthLower,Avg5Lower[i])+gLowerOffset[0];
         }
-      else if(count5>0)
-        {
-         NewVsAvgUpper[i]=Avg5Upper[i]+gUpperOffset[0];
-         NewVsAvgLower[i]=Avg5Lower[i]+gLowerOffset[0];
-        }
-      else if(useKAMAWidth)
-        {
-         NewVsAvgUpper[i]=baseKAMAWidthUpper+gUpperOffset[0];
-         NewVsAvgLower[i]=baseKAMAWidthLower+gLowerOffset[0];
-        }
-      else { NewVsAvgUpper[i]=EMPTY_VALUE; NewVsAvgLower[i]=EMPTY_VALUE; }
+      double rms=ResidualRMSAt(i,InpResidual_Period,rates_total,close,KAMALine);
+      double half=MathMax(MathMax(Atr[i]*InpATR_Min_Multiplier,rms*InpResidual_Multiplier)*InpKAMA_Width_Mult,_Point*2.0);
+      KAMAUpper[i]=KAMALine[i]+half;
+      KAMALower[i]=KAMALine[i]-half;
+      double widthScale=MathMax(0.01,InpFast_KAMAWidth_Scale);
+      FastKAMAWidthUpper[i]=FastLine[i]+half*widthScale+gUpperOffset[1];
+      FastKAMAWidthLower[i]=FastLine[i]-half*widthScale+gLowerOffset[1];
+      CalculateTrack4At(i,rates_total,open,close,true);
+     }
 
-      // C/D/E/综合轨1：只汇总被允许引用的基础通道；KAMA宽度通道需快速线与KAMA线同时启用引用。
-      double sum6U=0.0,sum6L=0.0,outerUpper=0.0,outerLower=0.0; int count6=0;
-      for(int k=0;k<5;k++)
-        if(useBase[k])
-          {
-           sum6U+=baseUpper[k]; sum6L+=baseLower[k];
-           if(count6==0) { outerUpper=baseUpper[k]; outerLower=baseLower[k]; }
-           else { outerUpper=MathMax(outerUpper,baseUpper[k]); outerLower=MathMin(outerLower,baseLower[k]); }
-           count6++;
-          }
-      if(useKAMAWidth)
-        {
-         sum6U+=baseKAMAWidthUpper; sum6L+=baseKAMAWidthLower;
-         if(count6==0) { outerUpper=baseKAMAWidthUpper; outerLower=baseKAMAWidthLower; }
-         else { outerUpper=MathMax(outerUpper,baseKAMAWidthUpper); outerLower=MathMin(outerLower,baseKAMAWidthLower); }
-         count6++;
-        }
-      Avg6Upper[i]=(count6>0 ? sum6U/count6 : EMPTY_VALUE);
-      Avg6Lower[i]=(count6>0 ? sum6L/count6 : EMPTY_VALUE);
-      Envelope6Upper[i]=(count6>0 ? outerUpper+gUpperOffset[4] : EMPTY_VALUE);
-      Envelope6Lower[i]=(count6>0 ? outerLower+gLowerOffset[4] : EMPTY_VALUE);
-
-      // E【本版】：C六组平均与D替代版（同样为六组平均）按混合比例融合，再限制最大半宽。
-      // 因为C=D，所以无论混合比例为多少，混合前的rawUpper/rawLower都等于六组平均。
-      // InpCappedBlend暂时保留，方便将来恢复旧D外沿算法后继续测试。
-      double blend=ClampValue(InpCappedBlend,0.0,1.0);
-      if(count6>0)
-        {
-         double rawUpper=Avg6Upper[i]+((outerUpper)-Avg6Upper[i])*blend;
-         double rawLower=Avg6Lower[i]-(Avg6Lower[i]-(outerLower))*blend;
-         double maxHalf=MathMax(atrValue*InpMaxHalfWidth_ATR,_Point*2.0);
-         CappedUpper[i]=MathMin(rawUpper,FastLine[i]+maxHalf)+gUpperOffset[2];
-         CappedLower[i]=MathMax(rawLower,FastLine[i]-maxHalf)+gLowerOffset[2];
-        }
-      else { CappedUpper[i]=EMPTY_VALUE; CappedLower[i]=EMPTY_VALUE; }
-
-      // F：只对允许引用的基础通道取中位数，0条时不绘制。
-      double ups[5],dns[5]; int medianCount=0;
-      for(int k=0;k<5;k++) if(useBase[k]) { ups[medianCount]=baseUpper[k]; dns[medianCount]=baseLower[k]; medianCount++; }
-      for(int a=1;a<medianCount;a++)
-        {
-         double keyU=ups[a],keyD=dns[a]; int b=a-1;
-         while(b>=0 && ups[b]>keyU){ups[b+1]=ups[b];b--;}
-         ups[b+1]=keyU;
-         b=a-1;
-         while(b>=0 && dns[b]>keyD){dns[b+1]=dns[b];b--;}
-         dns[b+1]=keyD;
-        }
-      if(medianCount>0)
-        {
-         int mid=medianCount/2;
-         if((medianCount%2)==1) { Median5Upper[i]=ups[mid]; Median5Lower[i]=dns[mid]; }
-         else { Median5Upper[i]=(ups[mid-1]+ups[mid])*0.5; Median5Lower[i]=(dns[mid-1]+dns[mid])*0.5; }
-        }
-      else { Median5Upper[i]=EMPTY_VALUE; Median5Lower[i]=EMPTY_VALUE; }
-
-      //================================================================
-      // 【综合轨1最终轨道公式区：每行对应一条公式说明】
-      // 六组通道平均上轨 Avg6Upper：快速通道上轨 FastUpper、卡尔曼通道上轨 KalmanUpper、KAMA通道上轨 KAMAUpper、中位结构通道上轨 MedianUpper、融合通道上轨 FusionUpper、快速线中心KAMA宽度通道上轨 FastKAMAWidthUpper，六者相加后除以6。
-      // 六组通道平均下轨 Avg6Lower：快速通道下轨 FastLower、卡尔曼通道下轨 KalmanLower、KAMA通道下轨 KAMALower、中位结构通道下轨 MedianLower、融合通道下轨 FusionLower、快速线中心KAMA宽度通道下轨 FastKAMAWidthLower，六者相加后除以6。
-      // 限宽融合通道上轨 CappedUpper：先将六组通道平均上轨与六组通道外沿上轨按混合系数 blend 插值，再限制在“快速响应线 FastLine + ATR最大半宽 maxHalf”以内，最后加上限宽融合通道上轨位移 gUpperOffset[2]。
-      // 限宽融合通道下轨 CappedLower：先将六组通道平均下轨与六组通道外沿下轨按混合系数 blend 插值，再限制在“快速响应线 FastLine - ATR最大半宽 maxHalf”以外，最后加上限宽融合通道下轨位移 gLowerOffset[2]。
-      // 外沿比较通道上轨 NewVsAvgUpper：快速线中心KAMA宽度通道上轨与五条基础通道上轨均值 Avg5Upper 取较大值，再加 gUpperOffset[0]。
-      // 外沿比较通道下轨 NewVsAvgLower：快速线中心KAMA宽度通道下轨与五条基础通道下轨均值 Avg5Lower 取较小值，再加 gLowerOffset[0]。动态倍率函数使用这两条轨道的窗口均值与最新已收盘值计算倍率。
-      // 综合轨1上轨位移 gUpperOffset[3]、综合轨1下轨位移 gLowerOffset[3]：由界面对应的加减按钮调整并保存，只作用于综合轨1最终显示值。
-      //================================================================
-      // 融合轨4独立于A-F组合轨的引用成员开关，基于快速线中心/KAMA基础宽度和综合动能计算。
-      CalculateTrack4At(i,rates_total,open,close,track4DataReady);
-
-      if(count6<=0 || Avg6Upper[i]==EMPTY_VALUE || CappedUpper[i]==EMPTY_VALUE)
-        {
-         Composite1Upper[i]=EMPTY_VALUE; Composite1Lower[i]=EMPTY_VALUE;
-         Composite2Upper[i]=EMPTY_VALUE; Composite2Lower[i]=EMPTY_VALUE; Composite2Middle[i]=EMPTY_VALUE;
-         Composite3Upper[i]=EMPTY_VALUE; Composite3Lower[i]=EMPTY_VALUE; Composite3Middle[i]=EMPTY_VALUE;
-         Composite3BaseUpper[i]=EMPTY_VALUE; Composite3BaseLower[i]=EMPTY_VALUE;
-         continue;
-        }
-      double rawCompositeUpper=Avg6Upper[i]-(CappedUpper[i]-Avg6Upper[i]); // 综合轨1原始上轨 = 六组通道平均上轨 Avg6Upper - (限宽融合通道上轨 CappedUpper - 六组通道平均上轨 Avg6Upper)，代数等价于 2×Avg6Upper - CappedUpper；此处尚未加入动态调整量和综合轨1上轨人工位移。
-      double rawCompositeLower=Avg6Lower[i]-(CappedLower[i]-Avg6Lower[i]); // 综合轨1原始下轨 = 六组通道平均下轨 Avg6Lower - (限宽融合通道下轨 CappedLower - 六组通道平均下轨 Avg6Lower)，代数等价于 2×Avg6Lower - CappedLower；此处尚未加入动态调整量和综合轨1下轨人工位移。
-      CompositeDynamicKUpper[i]=CalculateCompositeRailMultiplier(i,rates_total,true); // 计算综合轨1上轨动态倍率：读取外沿比较通道上轨 NewVsAvgUpper，比较其窗口均值与最新已收盘值，按输入参数平滑并映射到倍率范围；true 指定使用上轨。
-      CompositeDynamicKLower[i]=CalculateCompositeRailMultiplier(i,rates_total,false); // 计算综合轨1下轨动态倍率：读取外沿比较通道下轨 NewVsAvgLower，比较其窗口均值与最新已收盘值，按输入参数平滑并映射到倍率范围；false 指定使用下轨，上下轨分别计算。
-      double upperAdjustment=MathAbs(CappedUpper[i]-Avg6Upper[i])*CompositeDynamicKUpper[i]; // 综合轨1上轨动态调整量 = 限宽融合通道上轨 CappedUpper 与六组通道平均上轨 Avg6Upper 的绝对距离 × 综合轨1上轨动态倍率 CompositeDynamicKUpper；MathAbs 仅保留距离大小，不保留 CappedUpper 位于 Avg6Upper 上方还是下方的信息。
-      double lowerAdjustment=MathAbs(CappedLower[i]-Avg6Lower[i])*CompositeDynamicKLower[i]; // 综合轨1下轨动态调整量 = 限宽融合通道下轨 CappedLower 与六组通道平均下轨 Avg6Lower 的绝对距离 × 综合轨1下轨动态倍率 CompositeDynamicKLower；MathAbs 仅保留距离大小，不保留 CappedLower 位于 Avg6Lower 上方还是下方的信息。
-      Composite1Upper[i]=rawCompositeUpper+upperAdjustment+gUpperOffset[3]; // 综合轨1最终上轨 = 综合轨1原始上轨 rawCompositeUpper + 上轨动态调整量 upperAdjustment + 综合轨1上轨人工位移 gUpperOffset[3]；人工位移为正则上移，为负则下移。
-      Composite1Lower[i]=rawCompositeLower-lowerAdjustment+gLowerOffset[3]; // 综合轨1最终下轨 = 综合轨1原始下轨 rawCompositeLower - 下轨动态调整量 lowerAdjustment + 综合轨1下轨人工位移 gLowerOffset[3]；人工位移为正则上移，为负则下移。
-
-      //================================================================
-      // 【融合轨2：动能衰竭与极值磁吸实验，v0.61增加最小宽度保护和中线】
-      // 融合轨1保持原样。融合轨2单独读取MACD、RSI(7/14)、威廉指标、ADX及+DI/-DI。
-      // ATR只作为价格尺度和最大位移限制，不参加多空投票。
-      // 所有动能确认使用 i+1 及更旧的已收盘K线，避免盘中指标抖动回写历史。
-      //================================================================
-      if(!InpEnableFusionTrack2 || !track2DataReady || i+3>=rates_total)
-        {
-         Composite2Upper[i]=EMPTY_VALUE;
-         Composite2Lower[i]=EMPTY_VALUE;
-         Composite2Middle[i]=EMPTY_VALUE;
-         Composite3Upper[i]=EMPTY_VALUE;
-         Composite3Lower[i]=EMPTY_VALUE;
-         Composite3Middle[i]=EMPTY_VALUE;
-         Composite3BaseUpper[i]=EMPTY_VALUE;
-         Composite3BaseLower[i]=EMPTY_VALUE;
-        }
-      else
-        {
-         int lb=MathMax(2,InpTrack2_ExtremeLookback);
-         double recentHigh=high[i+1],recentLow=low[i+1];
-         int validExtreme=0;
-         for(int j=i+1;j<i+1+lb && j<rates_total;j++)
-           {
-            recentHigh=MathMax(recentHigh,high[j]);
-            recentLow=MathMin(recentLow,low[j]);
-            validExtreme++;
-           }
-         double atrScale=MathMax(Atr[i+1],_Point*2.0);
-         double velocityNow=(close[i+1]-close[i+2])/atrScale;
-         double velocityBefore=(close[i+2]-close[i+3])/MathMax(Atr[i+2],_Point*2.0);
-         double speedNow=MathAbs(velocityNow);
-         double speedBefore=MathAbs(velocityBefore);
-         double deceleration=ClampValue((speedBefore-speedNow)/(MathMax(speedBefore,0.08)),0.0,1.0);
-         double macdHist=Track2MACDMain[i+1]-Track2MACDSignal[i+1];
-         double macdHistOlder=Track2MACDMain[i+2]-Track2MACDSignal[i+2];
-         double rsiFast=Track2RSI7[i+1];
-         double rsiSlow=Track2RSI14[i+1];
-         double wpr=Track2WPR[i+1];
-         double adx=Track2ADX[i+1];
-         double plusDI=Track2PlusDI[i+1];
-         double minusDI=Track2MinusDI[i+1];
-
-         // 上轨风险：上涨速度减弱、MACD柱缩短、短RSI相对长RSI转弱、威廉极值共同提高磁吸评分。
-         double upperMacdWeak=(macdHist>0.0 && macdHist<macdHistOlder) ? 1.0 : 0.0;
-         double lowerMacdWeak=(macdHist<0.0 && macdHist>macdHistOlder) ? 1.0 : 0.0;
-         double upperRsiWeak=ClampValue((rsiFast-rsiSlow+8.0)/20.0,0.0,1.0);
-         double lowerRsiWeak=ClampValue((rsiSlow-rsiFast+8.0)/20.0,0.0,1.0);
-         double upperWprExtreme=ClampValue((wpr+45.0)/25.0,0.0,1.0);
-         double lowerWprExtreme=ClampValue((-55.0-wpr)/25.0,0.0,1.0);
-         double upDirection=(velocityNow>0.0 ? 1.0 : 0.0);
-         double downDirection=(velocityNow<0.0 ? 1.0 : 0.0);
-         double upperDIDivergence=(plusDI<minusDI ? 1.0 : 0.0);
-         double lowerDIDivergence=(minusDI<plusDI ? 1.0 : 0.0);
-         double upperExhaustion=ClampValue(0.38*deceleration+0.22*upperMacdWeak+0.18*upperRsiWeak+0.12*upperWprExtreme+0.10*upperDIDivergence,0.0,1.0)*upDirection;
-         double lowerExhaustion=ClampValue(0.38*deceleration+0.22*lowerMacdWeak+0.18*lowerRsiWeak+0.12*lowerWprExtreme+0.10*lowerDIDivergence,0.0,1.0)*downDirection;
-
-         // ADX较强时不直接否定衰竭，但削弱磁吸，减少强趋势中提前贴顶或贴底。
-         double trendGuard=1.0;
-         if(adx>InpTrack2_ADX_TrendGuard && speedNow>speedBefore)
-            trendGuard=0.35;
-         else if(adx>InpTrack2_ADX_TrendGuard)
-            trendGuard=0.70;
-         double pullCap=atrScale*MathMax(0.0,InpTrack2_MaxPull_ATR);
-
-         // 先把融合轨1上下轨规范化，避免原轨道因公式外推而出现上下颠倒。
-         double baseUpper=MathMax(Composite1Upper[i],Composite1Lower[i]);
-         double baseLower=MathMin(Composite1Upper[i],Composite1Lower[i]);
-         double baseWidth=baseUpper-baseLower;
-
-         double upperGap=MathMax(0.0,baseUpper-recentHigh);
-         double lowerGap=MathMax(0.0,recentLow-baseLower);
-         double upperPull=MathMin(pullCap,upperGap*ClampValue(InpTrack2_MagnetIntensity,0.0,1.0)*upperExhaustion*trendGuard);
-         double lowerPull=MathMin(pullCap,lowerGap*ClampValue(InpTrack2_MagnetIntensity,0.0,1.0)*lowerExhaustion*trendGuard);
-
-         double candidateUpper=baseUpper-upperPull;
-         double candidateLower=baseLower+lowerPull;
-
-         // 核心修复：不能只在上下轨交叉后扩成2个点，否则两条线会肉眼合并。
-         // 最小宽度取原轨宽度的35%、0.25 ATR、20个点三者最大值。
-         double minimumWidth=MathMax(MathMax(baseWidth*0.35,atrScale*0.25),_Point*20.0);
-         double candidateWidth=candidateUpper-candidateLower;
-         if(candidateWidth<minimumWidth)
-           {
-            double repairedMiddle=(candidateUpper+candidateLower)*0.5;
-            candidateUpper=repairedMiddle+minimumWidth*0.5;
-            candidateLower=repairedMiddle-minimumWidth*0.5;
-           }
-
-         Composite2Upper[i]=candidateUpper;
-         Composite2Lower[i]=candidateLower;
-         Composite2Middle[i]=(candidateUpper+candidateLower)*0.5;
-
-         // 融合轨3基础公式：不乘系数。
-         // 上轨 = KAMA上轨 - 融合轨2上半宽；下轨 = KAMA下轨 + 融合轨2下半宽。
-         // 两个独立按钮只负责将对应轨道整体上下平移，规则与D六组外沿、KAMA宽度等轨道一致。
-         // 融合轨3基础公式：严格以融合轨2的中线（Composite2Middle）为基准。
-         // 上轨 = 轨2中线 - 轨2上半宽 + 上轨独立偏移；
-         // 下轨 = 轨2中线 + 轨2下半宽 + 下轨独立偏移。
-         // t+="融合轨3：基准中线=融合轨2中线；上轨=轨2中线-轨2上半宽+上轨偏移；下轨=轨2中线+轨2下半宽+下轨偏移；均线轨=(上轨+下轨)/2。上下轨按钮负责独立平移，每次调整0.1；上轨偏移="+DoubleToString(gTrack3UpperOffset,1)+"，下轨偏移="+DoubleToString(gTrack3LowerOffset,1)+"。\r\n";
-         // 融合轨3基础公式：严格按照您的调制逻辑
-         // 1. 获取融合轨2的中线作为基准锚点
-         double track2Middle = Composite2Middle[i];
-         
-         // 2. 获取融合轨2的上下半宽（到中线的距离）
-         double track2UpperHalf = Composite2Upper[i] - track2Middle;
-         double track2LowerHalf = track2Middle - Composite2Lower[i];
-         
-         // 3. 融合轨3基础公式：KAMA上轨减去融合轨2上半宽；KAMA下轨加上融合轨2下半宽。
-         // 人工偏移与基础计算分离，只在输出阶段叠加，按钮点击不会重算动能/ATR/KAMA。
-         Composite3BaseUpper[i]=KAMAUpper[i]-track2UpperHalf;
-         Composite3BaseLower[i]=KAMALower[i]+track2LowerHalf;
-         Composite3Upper[i]=Composite3BaseUpper[i]+gTrack3UpperOffset;
-         Composite3Lower[i]=Composite3BaseLower[i]+gTrack3LowerOffset;
-         // 中线继续沿用融合轨2中线，不随上下轨独立人工偏移改变。
-         Composite3Middle[i]=track2Middle;
-        }
-   }
-   UpdateTouchArrowsAndStats(rates_total,time,open,high,low,close);
+   if(gStatsEnabled && (gStatsDirty || full || rates_total>prev_calculated))
+     {
+      // 统计打开时才扫描历史触点、重建盈亏篮子和亏损连线。
+      UpdateTouchArrowsAndStats(rates_total,time,open,high,low,close);
+      gStatsDirty=false;
+     }
+   else if(!gStatsEnabled && (full || rates_total>prev_calculated))
+      UpdateTouchArrowsOnly(rates_total,time,open,high,low,close);
    return rates_total;
-}
+  }
 //+------------------------------------------------------------------+
