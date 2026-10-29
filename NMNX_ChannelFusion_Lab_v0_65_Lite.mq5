@@ -439,7 +439,6 @@ input double InpTrack4_ADX_Weak           = 14.0; // ADX低于该值时趋势贡
 input double InpTrack4_ADX_Strong         = 32.0; // ADX达到该值时趋势强度归一化封顶
 input double InpTrack4_ExpandSpeed        = 0.22; // 驱离扩张速度：越大越快
 input double InpTrack4_RecoilSpeed        = 0.68; // 动能减弱后的回收速度：应显著快于扩张速度
-input bool   InpEnableFusionTrack2 = true;       // 计算融合轨2；关闭后不绘制
 
 
 double FastLine[], FastUpper[], FastLower[];
@@ -524,8 +523,6 @@ bool gShow[UI_BUTTON_COUNT];
 bool gLineVisible[5];
 bool gLineUsed[5];
 bool gDynamicMultiplierEnabled=true;
-double gTrack3UpperOffset=0.0; // 融合轨3上轨位置偏移，正值上移
-double gTrack3LowerOffset=0.0; // 融合轨3下轨位置偏移，正值上移
 double gTrack4UpperOffset=0.0; // 融合轨4上轨人工偏移，正值上移
 double gTrack4LowerOffset=0.0; // 融合轨4下轨人工偏移，正值上移
 bool gForceFullRecalc=false;
@@ -818,8 +815,6 @@ void SaveRuntimeSwitches()
       GlobalVariableSet(RuntimeSwitchKey("LINEUSE"+IntegerToString(i)),gLineUsed[i]?1.0:0.0);
      }
    GlobalVariableSet(RuntimeSwitchKey("DYNAMIC"),gDynamicMultiplierEnabled?1.0:0.0);
-   GlobalVariableSet(RuntimeSwitchKey("TRACK3_UP_OFFSET_V064"),gTrack3UpperOffset);
-   GlobalVariableSet(RuntimeSwitchKey("TRACK3_DN_OFFSET_V064"),gTrack3LowerOffset);
    GlobalVariableSet(RuntimeSwitchKey("TRACK4_UP_OFFSET_V065"),gTrack4UpperOffset);
    GlobalVariableSet(RuntimeSwitchKey("TRACK4_DN_OFFSET_V065"),gTrack4LowerOffset);
   }
@@ -842,9 +837,7 @@ void RestoreRuntimeSwitches()
    key=RuntimeSwitchKey("DYNAMIC");
    if(GlobalVariableCheck(key)) gDynamicMultiplierEnabled=(GlobalVariableGet(key)>0.5);
    key=RuntimeSwitchKey("TRACK3_UP_OFFSET_V064");
-   if(GlobalVariableCheck(key)) gTrack3UpperOffset=GlobalVariableGet(key);
    key=RuntimeSwitchKey("TRACK3_DN_OFFSET_V064");
-   if(GlobalVariableCheck(key)) gTrack3LowerOffset=GlobalVariableGet(key);
    key=RuntimeSwitchKey("TRACK4_UP_OFFSET_V065");
    if(GlobalVariableCheck(key)) gTrack4UpperOffset=GlobalVariableGet(key);
    key=RuntimeSwitchKey("TRACK4_DN_OFFSET_V065");
@@ -1623,7 +1616,7 @@ int OnInit()
    gShow[10]=InpShow_Capped_Channel;
    gShow[11]=InpShow_Median5_Channel;
    gShow[12]=true;
-   gShow[13]=InpEnableFusionTrack2;
+   gShow[13]=false;
    gLineVisible[0]=InpShow_Fast_Line;
    gLineVisible[1]=InpShow_Kalman_Line;
    gLineVisible[2]=InpShow_KAMA_Line;
@@ -1636,7 +1629,7 @@ int OnInit()
    gLineUsed[4]=InpUse_Fusion_Line;
    gDynamicMultiplierEnabled=InpEnableCompositeDynamicMultiplier;
    gShow[12]=false;
-   gShow[13]=InpEnableFusionTrack2;
+   gShow[13]=false;
    gShow[14]=true;
    gShow[15]=true;
    RestoreRuntimeSwitches();
@@ -1724,12 +1717,12 @@ int OnInit()
    PlotIndexSetInteger(28,PLOT_DRAW_TYPE,InpShow_Median5_Channel ? DRAW_LINE : DRAW_NONE);
    PlotIndexSetInteger(29,PLOT_DRAW_TYPE,DRAW_LINE);
    PlotIndexSetInteger(30,PLOT_DRAW_TYPE,DRAW_LINE);
-   PlotIndexSetInteger(31,PLOT_DRAW_TYPE,InpEnableFusionTrack2 ? DRAW_LINE : DRAW_NONE);
-   PlotIndexSetInteger(32,PLOT_DRAW_TYPE,InpEnableFusionTrack2 ? DRAW_LINE : DRAW_NONE);
-   PlotIndexSetInteger(33,PLOT_DRAW_TYPE,InpEnableFusionTrack2 ? DRAW_LINE : DRAW_NONE);
-   PlotIndexSetInteger(34,PLOT_DRAW_TYPE,InpEnableFusionTrack2 ? DRAW_LINE : DRAW_NONE);
-   PlotIndexSetInteger(35,PLOT_DRAW_TYPE,InpEnableFusionTrack2 ? DRAW_LINE : DRAW_NONE);
-   PlotIndexSetInteger(36,PLOT_DRAW_TYPE,InpEnableFusionTrack2 ? DRAW_LINE : DRAW_NONE);
+   PlotIndexSetInteger(31,PLOT_DRAW_TYPE,false ? DRAW_LINE : DRAW_NONE);
+   PlotIndexSetInteger(32,PLOT_DRAW_TYPE,false ? DRAW_LINE : DRAW_NONE);
+   PlotIndexSetInteger(33,PLOT_DRAW_TYPE,false ? DRAW_LINE : DRAW_NONE);
+   PlotIndexSetInteger(34,PLOT_DRAW_TYPE,false ? DRAW_LINE : DRAW_NONE);
+   PlotIndexSetInteger(35,PLOT_DRAW_TYPE,false ? DRAW_LINE : DRAW_NONE);
+   PlotIndexSetInteger(36,PLOT_DRAW_TYPE,false ? DRAW_LINE : DRAW_NONE);
    PlotIndexSetInteger(37,PLOT_DRAW_TYPE,InpEnableFusionTrack4 ? DRAW_LINE : DRAW_NONE);
    PlotIndexSetInteger(38,PLOT_DRAW_TYPE,InpEnableFusionTrack4 ? DRAW_LINE : DRAW_NONE);
    ApplyPlotVisibility();
@@ -1883,9 +1876,6 @@ void OnChartEvent(const int id,const long &lparam,const double &dparam,const str
          UpdateLineSwitchLook(line,true);
          UpdateDebugPanel();
         }
-        // 【核心修改】：这里不再整表重载，而是直接调用即时重建缓冲区函数！
-          RebuildTrack3();
-          
       ObjectSetInteger(0,sparam,OBJPROP_STATE,false);
       ChartRedraw(0);
       return;
@@ -1901,32 +1891,6 @@ void OnChartEvent(const int id,const long &lparam,const double &dparam,const str
       ForceImmediateRecalculation();
       return;
      }
-
-   string t3rails[2]={"UP","DN"};
-   string t3parts[3]={"DEC","VAL","INC"};
-   for(int r=0;r<2;r++)
-     for(int part=0;part<3;part++)
-       if(sparam==Track3DeviationButtonName(t3rails[r],t3parts[part]))
-         {
-          string rail=t3rails[r];
-          if(t3parts[part]=="VAL")
-            {
-             ObjectSetInteger(0,sparam,OBJPROP_STATE,false);
-             ChartRedraw(0);
-             return;
-            }
-          double value=Track3OffsetValue(rail);
-          if(t3parts[part]=="DEC") value=NormalizeDouble(value-TRACK3_OFFSET_STEP,1);
-          else if(t3parts[part]=="INC") value=NormalizeDouble(value+TRACK3_OFFSET_STEP,1);
-          SetTrack3OffsetValue(rail,value);
-          GlobalVariableSet(RuntimeSwitchKey(rail=="UP" ? "TRACK3_UP_OFFSET_V064" : "TRACK3_DN_OFFSET_V064"),Track3OffsetValue(rail));
-          UpdateTrack3DeviationButtons();
-          RebuildTrack3();
-          SaveRuntimeSwitches();
-          ObjectSetInteger(0,sparam,OBJPROP_STATE,false);
-          ChartRedraw(0);
-          return;
-         }
 
    string t4rails[2]={"UP","DN"};
    string t4parts[3]={"DEC","VAL","INC"};
