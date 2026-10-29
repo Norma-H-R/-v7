@@ -1271,6 +1271,7 @@ void UpdateLiteRailButtons()
 
 void CreateLiteRailButtons()
   {
+   string labels[4]={"KAMA参考上轨","KAMA参考下轨","融合轨4上轨","融合轨4下轨"};
 
    int xs[4]={250,385,520,655};
    int ys[4]={675,675,700,700};
