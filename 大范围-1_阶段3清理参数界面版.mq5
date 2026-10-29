@@ -1541,6 +1541,11 @@ int OnInit()
       InpKAMA_Fast_Period<1 || InpKAMA_Slow_Period<2 ||
       InpMedian_Period<1 || InpFusion_Smooth_Period<1 ||
       InpATR_Period<1 || InpResidual_Period<1 ||
+      InpATR_Min_Multiplier<=0.0 || InpResidual_Multiplier<0.0 || InpFast_KAMAWidth_Scale<=0.0 || InpMaxHalfWidth_ATR<=0.0 ||
+      InpTrack4_MACD_Fast<1 || InpTrack4_MACD_Slow<=InpTrack4_MACD_Fast || InpTrack4_MACD_Signal<1 ||
+      InpTrack4_RSI_Fast<2 || InpTrack4_RSI_Slow<2 || InpTrack4_WPR_Fast<2 || InpTrack4_WPR_Slow<2 || InpTrack4_ADX_Period<2 ||
+      InpTrack4_KDJ_K<1 || InpTrack4_KDJ_D<1 || InpTrack4_KDJ_Slowing<1 || InpTrack4_MaxDrive_ATR<0.0 || InpTrack4_MaxLift_ATR<0.0 ||
+      InpTrack4_ADX_Strong<=InpTrack4_ADX_Weak || InpTrack4_ExpandSpeed<=0.0 || InpTrack4_ExpandSpeed>1.0 || InpTrack4_RecoilSpeed<=0.0 || InpTrack4_RecoilSpeed>1.0)
    {
       Print("五线原始通道：参数无效，请检查输入参数。");
       return INIT_PARAMETERS_INCORRECT;
@@ -1658,6 +1663,7 @@ int OnInit()
    PlotIndexSetInteger(28,PLOT_DRAW_TYPE,InpShow_Median5_Channel ? DRAW_LINE : DRAW_NONE);
    PlotIndexSetInteger(29,PLOT_DRAW_TYPE,DRAW_LINE);
    PlotIndexSetInteger(30,PLOT_DRAW_TYPE,DRAW_LINE);
+   for(int p=31;p<=36;p++) PlotIndexSetInteger(p,PLOT_DRAW_TYPE,DRAW_NONE); // 已移除轨道固定隐藏
    PlotIndexSetInteger(37,PLOT_DRAW_TYPE,InpEnableFusionTrack4 ? DRAW_LINE : DRAW_NONE);
    PlotIndexSetInteger(38,PLOT_DRAW_TYPE,InpEnableFusionTrack4 ? DRAW_LINE : DRAW_NONE);
    ApplyPlotVisibility();
