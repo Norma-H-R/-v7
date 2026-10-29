@@ -6,7 +6,7 @@
 //+------------------------------------------------------------------+
 #property strict
 #property version   "1.30"
-#property description "NMNX双轨核心：融合轨4、触点轨1/2/3/3、选择器与模拟统计"
+#property description "NMNX双轨核心：融合轨4、触点轨1/2/3、选择器与模拟统计"
 #property indicator_chart_window
 #property indicator_buffers 12
 #property indicator_plots   12
