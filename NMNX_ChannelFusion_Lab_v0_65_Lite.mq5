@@ -807,7 +807,7 @@ double Track3OffsetValue(const string rail)
 
 void SetTrack3OffsetValue(const string rail,const double value)
   {
-   if(rail=="UP") gTrack3UpperOffset=NormalizeDouble(value,2);
+   if(rail=="UP") gTrack3UpperOffset=NormalizeDouble(value,1);
    else            gTrack3LowerOffset=NormalizeDouble(value,1);
   }
 
@@ -872,8 +872,8 @@ double Track4OffsetValue(const string rail)
 
 void SetTrack4OffsetValue(const string rail,const double value)
   {
-   if(rail=="UP") gTrack4UpperOffset=NormalizeDouble(value,1);
-   else            gTrack4LowerOffset=NormalizeDouble(value,1);
+   if(rail=="UP") gTrack4UpperOffset=NormalizeDouble(value,2);
+   else            gTrack4LowerOffset=NormalizeDouble(value,2);
   }
 
 void UpdateTrack4DeviationButtons()
