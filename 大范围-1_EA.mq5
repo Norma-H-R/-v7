@@ -5,7 +5,8 @@
 //| 触点判定改为逐tick实时判定：价格在运动中碰到外轨即锁定，不等收盘。     |
 //+------------------------------------------------------------------+
 #property version   "3.10"
-#property description "NMNX 单文件EA：直接移植原始轨道计算，后台计算不绘制指标。"#include <Trade/Trade.mqh>
+#property description "NMNX 单文件EA：直接移植原始轨道计算，后台计算不绘制指标。"
+#include <Trade/Trade.mqh>
 
 //+------------------------------------------------------------------+
 //| 输入参数                                                          |
@@ -717,7 +718,7 @@ void OnTick()
    if(InpSameDirectionSpacingFilter && direction==gLastAcceptedDirection && gLastAcceptedSignalTime>0)
      {
       int barsApart=iBarShift(_Symbol,PERIOD_M5,gLastAcceptedSignalTime,true);
-      if(barsApart>=0 && barsApart<3) { gLastAcceptedSignalTime=barTime; return; }
+      if(barsApart>=0 && barsApart<3) return;
      }
 
    gLastAcceptedDirection=direction;
